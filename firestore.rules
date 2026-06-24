@@ -30,6 +30,12 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    match /studentApprovals/{uid} {
+      allow read: if owns(uid) || hasRole('parent') || hasRole('admin');
+      allow create, update: if hasRole('parent') || hasRole('admin');
+      allow delete: if hasRole('admin');
+    }
+
     match /studyLogs/{uid}/logs/{logId} {
       allow read, create: if owns(uid);
       allow update, delete: if false;

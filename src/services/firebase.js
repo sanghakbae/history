@@ -7,7 +7,7 @@ import {
   signInWithPopup,
   signOut,
 } from 'firebase/auth';
-import { collection, doc, getDocs, getFirestore, serverTimestamp, setDoc } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, getFirestore, serverTimestamp, setDoc } from 'firebase/firestore';
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || 'AIzaSyAxgNCPPqXglJq2hElNiG228m4yZG-hBdE',
@@ -94,4 +94,34 @@ export async function listStudentUsers() {
   return snapshot.docs
     .map((item) => ({ id: item.id, ...item.data() }))
     .sort((a, b) => (a.displayName || a.email || '').localeCompare(b.displayName || b.email || ''));
+}
+
+export async function listStudyLogs(uid) {
+  if (!db || !uid) return [];
+  const snapshot = await getDocs(collection(db, 'studyLogs', uid, 'logs'));
+  return snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
+}
+
+export async function approveStudentForParent(parentUser, student) {
+  if (!db || !parentUser || !student?.id) return;
+  await setDoc(
+    doc(db, 'studentApprovals', student.id),
+    {
+      studentUid: student.id,
+      studentName: student.displayName || student.email || student.id,
+      studentEmail: student.email || '',
+      parentUid: parentUser.uid,
+      parentName: parentUser.displayName || parentUser.email || '',
+      parentEmail: parentUser.email || '',
+      approvedAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    },
+    { merge: true },
+  );
+}
+
+export async function getStudentApproval(uid) {
+  if (!db || !uid) return null;
+  const snapshot = await getDoc(doc(db, 'studentApprovals', uid));
+  return snapshot.exists() ? { id: snapshot.id, ...snapshot.data() } : null;
 }

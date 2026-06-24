@@ -7,7 +7,7 @@ const gradeColors = {
   h3: '#f06595',
 };
 
-const r2PublicUrl = (import.meta.env.VITE_CLOUDFLARE_R2_PUBLIC_URL || '').replace(/\/$/, '');
+const r2PublicUrl = (import.meta.env?.VITE_CLOUDFLARE_R2_PUBLIC_URL || '').replace(/\/$/, '');
 
 const assetCatalog = {
   seed: [{ file: 'comb-pattern-pottery.webp', label: '빗살무늬 토기와 신석기 생활' }],
@@ -163,11 +163,79 @@ const rawCurriculum = [
   },
 ];
 
-const promptTemplates = [
-  '다음 설명에 해당하는 역사 개념으로 가장 적절한 것은?',
-  '다음 자료를 해석할 때 먼저 확인해야 할 기준으로 옳은 것은?',
-  '다음 사건을 시간 순서상 바르게 연결한 것은?',
-  '다음 제도나 현상이 나타난 배경으로 가장 적절한 것은?',
+const questionBlueprints = [
+  {
+    stem: (title) => `${title} 단원의 핵심 내용을 바르게 설명한 것은?`,
+    answer: (_grade, _title, concept) => concept,
+    distractors: [
+      '단원 이름만 외우면 시대 배경은 확인하지 않아도 된다.',
+      '인물 이름이 나오면 곧바로 정답으로 판단한다.',
+      '비슷한 용어는 모두 같은 시대의 내용으로 본다.',
+    ],
+  },
+  {
+    stem: (title) => `${title}와 관련된 자료를 읽을 때 가장 먼저 확인할 기준은?`,
+    answer: () => '자료가 만들어진 시기, 만든 사람, 관점을 함께 확인한다.',
+    distractors: [
+      '자료의 제목만 보고 시대와 관점을 모두 판단한다.',
+      '사진이나 지도는 역사 문제에서 단서가 되지 않는다.',
+      '자료를 만든 사람보다 보기의 긴 문장을 먼저 고른다.',
+    ],
+  },
+  {
+    stem: (title) => `${title}을(를) 같은 시대 흐름 속에서 이해한 설명으로 옳은 것은?`,
+    answer: (grade) => `${grade.era} 흐름 안에서 관련 사건과 제도를 연결해 판단한다.`,
+    distractors: [
+      '한국사와 세계사 흐름은 서로 관련 없이 따로 외운다.',
+      '같은 단어가 나오면 모든 시대에서 같은 의미로 해석한다.',
+      '제도와 사건의 앞뒤 관계는 정답 판단에 필요하지 않다.',
+    ],
+  },
+  {
+    stem: (title) => `${title} 단원에서 원인과 결과를 바르게 연결한 것은?`,
+    answer: () => '사건의 배경, 전개, 결과를 차례로 확인해 선택지를 비교한다.',
+    distractors: [
+      '결과를 먼저 정답으로 고르고 원인은 나중에 맞춘다.',
+      '전개 과정이 달라도 핵심 단어가 같으면 정답이다.',
+      '원인과 결과가 바뀐 선택지도 같은 의미로 본다.',
+    ],
+  },
+  {
+    stem: (title) => `${title}와(과) 다른 시대의 내용을 구분한 설명으로 옳은 것은?`,
+    answer: (_grade, title) => `${title}의 특징과 맞지 않는 시대착오 표현을 먼저 지운다.`,
+    distractors: [
+      '선택지에 익숙한 단어가 있으면 시대가 달라도 정답이다.',
+      '정치 제도, 문화재, 전쟁은 시대 구분 없이 섞어 판단한다.',
+      '낯선 표현은 무조건 오답이므로 읽지 않는다.',
+    ],
+  },
+  {
+    stem: (title) => `${title} 학습에서 헷갈리기 쉬운 선택지를 고르는 기준으로 옳은 것은?`,
+    answer: () => '보기의 시대, 지역, 제도명이 모두 맞는지 함께 확인한다.',
+    distractors: [
+      '시대가 맞으면 지역과 제도명은 틀려도 정답이다.',
+      '보기 중 가장 긴 문장이 항상 교과서 설명이다.',
+      '처음 보는 용어가 있으면 나머지 내용은 읽지 않는다.',
+    ],
+  },
+  {
+    stem: (title) => `${title} 단원의 학습 기록을 정리하는 방법으로 적절한 것은?`,
+    answer: () => '핵심 사건을 원인, 전개, 결과 순서로 한 줄씩 정리한다.',
+    distractors: [
+      '사건 이름만 가나다순으로 적으면 충분하다.',
+      '정답 보기만 외우고 오답 보기는 다시 보지 않는다.',
+      '지도와 연표는 시험 문제에 나오지 않으므로 제외한다.',
+    ],
+  },
+  {
+    stem: (title) => `${title} 문제를 풀 때 자료와 선택지를 연결한 방식으로 옳은 것은?`,
+    answer: () => '자료의 단서가 선택지의 사건, 제도, 시대와 맞는지 대조한다.',
+    distractors: [
+      '자료와 선택지를 따로 읽고 느낌이 비슷한 보기를 고른다.',
+      '자료에 없는 내용이라도 익숙하면 정답으로 고른다.',
+      '시대 단서보다 보기 번호가 앞선 선택지를 우선한다.',
+    ],
+  },
 ];
 
 export const grades = rawCurriculum.map((grade) => ({
@@ -202,20 +270,24 @@ function buildQuestionSet(grade, title, concept, slug, index) {
 
 function getQuestionCount(gradeId, unitIndex) {
   const baseByGrade = {
-    m1: [18, 20, 24, 22, 26, 20, 22, 18, 20, 18],
-    m2: [24, 22, 20, 22, 26, 20, 22, 22, 22, 18, 20],
-    m3: [22, 20, 24, 26, 24, 28, 30, 20, 22, 22, 20, 24],
-    h1: [24, 26, 22, 28, 24, 26, 30, 28, 28, 30, 24, 26],
-    h2: [22, 24, 24, 22, 26, 22, 28, 28, 24, 26, 24, 22],
-    h3: [30, 28, 30, 28, 28, 34, 30, 34, 32, 32, 30, 36],
+    m1: [8, 10, 10, 10, 12, 9, 10, 8, 10, 8],
+    m2: [10, 10, 8, 9, 10, 8, 9, 10, 9, 8, 8],
+    m3: [9, 8, 10, 10, 10, 12, 12, 8, 9, 9, 9, 10],
+    h1: [10, 10, 9, 11, 10, 10, 12, 11, 12, 12, 10, 10],
+    h2: [9, 10, 10, 9, 10, 9, 11, 11, 10, 10, 10, 9],
+    h3: [12, 12, 12, 11, 11, 14, 12, 14, 12, 12, 12, 14],
   };
   return baseByGrade[gradeId][unitIndex] ?? 20;
 }
 
 function buildQuestion(grade, title, concept, slug, index, questionIndex) {
-  const answer = `${title}의 핵심은 ${concept}`;
-  const prompt = promptTemplates[(index + questionIndex) % promptTemplates.length];
+  const blueprint = questionBlueprints[questionIndex % questionBlueprints.length];
   const number = questionIndex + 1;
+  const answer = blueprint.answer(grade, title, concept);
+  const distractors = blueprint.distractors;
+  const answerIndex = (questionIndex + index) % 4;
+  const choices = [...distractors];
+  choices.splice(answerIndex, 0, answer);
 
   return {
     id: `q-${grade.id}-${slug}-${String(number).padStart(2, '0')}`,
@@ -223,16 +295,11 @@ function buildQuestion(grade, title, concept, slug, index, questionIndex) {
     type: ['자료 해석', '개념 적용', '연표 판단', '비교 분석', '실전 적용'][questionIndex % 5],
     difficulty: Math.min(5, 2 + Math.floor((index + questionIndex) / 3)),
     xp: 40 + index * 5 + questionIndex * 3,
-    stem: prompt,
+    stem: blueprint.stem(title),
     source: concept,
     assets: buildAssets(grade.id, slug, questionIndex),
-    choices: [
-      answer,
-      `${grade.era}와 무관한 단편 암기만으로 판단한다.`,
-      `인물 이름만 보고 시대 배경을 생략한다.`,
-      `자료가 만들어진 사람과 시기를 확인하지 않는다.`,
-    ],
-    answerIndex: 0,
+    choices,
+    answerIndex,
     explanation: `${grade.label} ${grade.course} 교과서 흐름에서 '${title}'은(는) ${concept} 이 점을 자료 단서, 배경, 결과 순서로 정리해야 한다.`,
     concepts: [
       `${title}: ${concept}`,
@@ -255,12 +322,32 @@ function buildQuestion(grade, title, concept, slug, index, questionIndex) {
 }
 
 function buildAssets(gradeId, slug, questionIndex) {
-  if (!r2PublicUrl || questionIndex % 4 !== 1) return [];
+  if (questionIndex % 3 === 2) return [];
   return (assetCatalog[slug] || []).map((asset) => ({
     type: 'image',
     label: asset.label,
-    url: `${r2PublicUrl}/history/${gradeId}/${slug}/${asset.file}`,
+    url: buildAssetUrl(gradeId, slug, asset),
   }));
+}
+
+function buildAssetUrl(gradeId, slug, asset) {
+  if (r2PublicUrl) return `${r2PublicUrl}/history/${gradeId}/${slug}/${asset.file}`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540" viewBox="0 0 960 540">
+    <rect width="960" height="540" fill="#152033"/>
+    <rect x="42" y="42" width="876" height="456" rx="24" fill="#20304a" stroke="#6ee7b7" stroke-width="4"/>
+    <text x="80" y="140" fill="#6ee7b7" font-family="sans-serif" font-size="34" font-weight="700">역사 자료 이미지</text>
+    <text x="80" y="230" fill="#f8fafc" font-family="sans-serif" font-size="52" font-weight="800">${escapeSvg(asset.label)}</text>
+    <text x="80" y="320" fill="#cbd5e1" font-family="sans-serif" font-size="28">R2 공개 URL 설정 시 실제 자료 이미지로 교체됩니다.</text>
+  </svg>`;
+  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
+}
+
+function escapeSvg(value) {
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;');
 }
 
 function buildLesson(grade, title, concept, index) {

@@ -19,7 +19,10 @@ import {
   auth,
   db,
   isFirebaseConfigured,
+  approveStudentForParent,
+  getStudentApproval,
   listStudentUsers,
+  listStudyLogs,
   signInWithGoogle,
   signOutUser,
   subscribeToAuth,
@@ -30,6 +33,12 @@ import { grades, totalQuestionCount } from './data/curriculum';
 import './styles.css';
 
 const leaderboard = [];
+const xpPenaltyGuideKeys = new Set(['timeline', 'eliminate']);
+
+function calculateAwardedXp(question, usedGuides = []) {
+  const penaltyCount = usedGuides.filter((key) => xpPenaltyGuideKeys.has(key)).length;
+  return Math.max(0, Math.round(question.xp * (1 - penaltyCount * 0.05)));
+}
 
 function App() {
   const isManagerRoute = window.location.pathname.startsWith('/manager');
@@ -44,6 +53,7 @@ function App() {
   const [studySplit, setStudySplit] = useState(50);
   const [selectedQuestionIndex, setSelectedQuestionIndex] = useState(0);
   const [solvedQuestionIds, setSolvedQuestionIds] = useState(() => new Set());
+  const [usedGuidesByQuestion, setUsedGuidesByQuestion] = useState({});
   const [approvedChild, setApprovedChild] = useState(() => localStorage.getItem('historyApprovedChild') || '');
 
   useEffect(() => {
@@ -73,6 +83,41 @@ function App() {
           'student';
         setRole(storedRole);
         await upsertUserProfile(nextUser, storedRole);
+        if (storedRole === 'student') {
+          const localApproval =
+            localStorage.getItem(`historyApprovedStudent:${nextUser.uid}`) ||
+            localStorage.getItem('historyApprovedChild');
+          if (localApproval) {
+            localStorage.setItem(`historyApprovedStudent:${nextUser.uid}`, localApproval);
+            setApprovedChild(localApproval);
+          } else {
+            try {
+              const approval = await getStudentApproval(nextUser.uid);
+              if (approval) {
+                const approvedName = approval.studentName || nextUser.displayName || nextUser.email || nextUser.uid;
+                localStorage.setItem(`historyApprovedStudent:${nextUser.uid}`, approvedName);
+                setApprovedChild(approvedName);
+              } else {
+                setApprovedChild('');
+              }
+            } catch {
+              setApprovedChild('');
+            }
+          }
+          try {
+            const logs = await listStudyLogs(nextUser.uid);
+            const restoredSolvedIds = new Set(logs.map((log) => log.questionId).filter(Boolean));
+            const restoredGuides = logs.reduce((guides, log) => {
+              if (!log.questionId || !Array.isArray(log.usedGuides)) return guides;
+              return { ...guides, [log.questionId]: log.usedGuides };
+            }, {});
+            setSolvedQuestionIds(restoredSolvedIds);
+            setUsedGuidesByQuestion(restoredGuides);
+          } catch {
+            setSolvedQuestionIds(new Set());
+            setUsedGuidesByQuestion({});
+          }
+        }
         setSelectedGrade(grades[0]);
         setSelectedUnitId(grades[0].units[0].id);
         setSelectedQuestionIndex(0);
@@ -90,32 +135,63 @@ function App() {
     [selectedGrade, selectedUnitId],
   );
   const selectedQuestion = selectedUnit.questions[selectedQuestionIndex] ?? selectedUnit.questions[0];
+  const allUnits = useMemo(
+    () => grades.flatMap((grade) => grade.units.map((unit) => ({ grade, unit }))),
+    [],
+  );
+  const allQuestions = useMemo(
+    () => allUnits.flatMap(({ unit }) => unit.questions),
+    [allUnits],
+  );
+  const earnedXp = useMemo(
+    () =>
+      allQuestions.reduce((total, question) => {
+        if (!solvedQuestionIds.has(question.id)) return total;
+        return total + calculateAwardedXp(question, usedGuidesByQuestion[question.id] || []);
+      }, 0),
+    [allQuestions, solvedQuestionIds, usedGuidesByQuestion],
+  );
+  const currentRank = earnedXp > 0 ? 1 : null;
 
   useEffect(() => {
     setSelectedQuestionIndex(0);
   }, [selectedUnit.id]);
 
-  function getSolvedCount(unit) {
-    return unit.questions.filter((question) => solvedQuestionIds.has(question.id)).length;
+  function getSolvedCount(unit, solvedIds = solvedQuestionIds) {
+    return unit.questions.filter((question) => solvedIds.has(question.id)).length;
+  }
+
+  function isUnitComplete(unit, solvedIds = solvedQuestionIds) {
+    return unit.questions.length > 0 && getSolvedCount(unit, solvedIds) >= unit.questions.length;
+  }
+
+  function isUnitUnlockedById(unitId, solvedIds = solvedQuestionIds) {
+    const globalIndex = allUnits.findIndex(({ unit }) => unit.id === unitId);
+    if (globalIndex <= 0) return true;
+    return isUnitComplete(allUnits[globalIndex - 1].unit, solvedIds);
   }
 
   function isUnitUnlocked(grade, unitIndex) {
-    const allUnits = grades.flatMap((gradeItem) => gradeItem.units);
     const targetUnit = grade.units[unitIndex];
-    const globalIndex = allUnits.findIndex((unit) => unit.id === targetUnit.id);
-    if (globalIndex <= 0) return true;
-    const previousUnit = allUnits[globalIndex - 1];
-    return getSolvedCount(previousUnit) >= previousUnit.questions.length;
+    if (!targetUnit) return false;
+    return isUnitUnlockedById(targetUnit.id);
   }
 
-  function handleSelectGrade(grade, unitId = grade.units[0].id) {
-    const unitIndex = grade.units.findIndex((unit) => unit.id === unitId);
-    if (!isUnitUnlocked(grade, Math.max(0, unitIndex))) {
+  function getFirstUnlockedUnit(grade) {
+    return grade.units.find((unit) => isUnitUnlockedById(unit.id)) ?? grade.units[0];
+  }
+
+  function handleSelectGrade(grade, unitId) {
+    const targetUnit = unitId
+      ? grade.units.find((unit) => unit.id === unitId)
+      : getFirstUnlockedUnit(grade);
+    if (!targetUnit || !isUnitUnlockedById(targetUnit.id)) {
       setNotice('이전 스킬의 모든 문항을 완료하면 열립니다.');
       return;
     }
     setSelectedGrade(grade);
-    setSelectedUnitId(unitId);
+    setSelectedUnitId(targetUnit.id);
+    setSelectedQuestionIndex(0);
   }
 
   function handleSelectUnit(unitId) {
@@ -162,27 +238,65 @@ function App() {
     }
   }
 
-  function handleApproveChild(childName) {
+  async function handleApproveChild(child) {
+    const childName = child.displayName || child.email || child.id;
     localStorage.setItem('historyApprovedChild', childName);
-    setApprovedChild(childName);
-    setNotice(`${childName} 자녀가 선택되었습니다. 학생 계정은 이제 문제를 풀 수 있습니다.`);
+    localStorage.setItem(`historyApprovedStudent:${child.id}`, childName);
+    try {
+      await approveStudentForParent(user, child);
+      setApprovedChild(childName);
+      setNotice(`${childName} 자녀가 등록되었습니다. 다음부터 다시 묻지 않습니다.`);
+    } catch {
+      setApprovedChild(childName);
+      setNotice(`${childName} 자녀가 이 브라우저에 등록되었습니다. Firestore 규칙 배포 후 계정에도 저장됩니다.`);
+    }
   }
 
   async function handleCompleteMission(question) {
-    setSolvedQuestionIds((current) => new Set(current).add(question.id));
-    setNotice(`${selectedUnit.title} 문제 풀이 기록이 준비되었습니다.`);
+    if (solvedQuestionIds.has(question.id)) return;
+    const usedGuides = usedGuidesByQuestion[question.id] || [];
+    const awardedXp = calculateAwardedXp(question, usedGuides);
+    const nextSolvedIds = new Set(solvedQuestionIds);
+    nextSolvedIds.add(question.id);
+    const completedUnit = isUnitComplete(selectedUnit, nextSolvedIds);
+    setSolvedQuestionIds((current) => {
+      if (current.has(question.id)) return current;
+      const next = new Set(current);
+      next.add(question.id);
+      return next;
+    });
+    setNotice(
+      completedUnit
+        ? `${selectedUnit.title} 완료. 다음 스킬을 선택할 수 있습니다. +${awardedXp} XP`
+        : `${selectedUnit.title} ${getSolvedCount(selectedUnit, nextSolvedIds)}/${selectedUnit.questions.length}문제 완료. +${awardedXp} XP`,
+    );
     if (!isFirebaseConfigured || !auth.currentUser) return;
 
-    await addDoc(collection(db, 'studyLogs', auth.currentUser.uid, 'logs'), {
-      role,
-      gradeId: selectedGrade.id,
-      gradeLabel: selectedGrade.label,
-      unitId: selectedUnit.id,
-      unitTitle: selectedUnit.title,
-      questionId: question.id,
-      questionTitle: question.title,
-      points: question.xp,
-      createdAt: serverTimestamp(),
+    try {
+      await addDoc(collection(db, 'studyLogs', auth.currentUser.uid, 'logs'), {
+        role,
+        gradeId: selectedGrade.id,
+        gradeLabel: selectedGrade.label,
+        unitId: selectedUnit.id,
+        unitTitle: selectedUnit.title,
+        questionId: question.id,
+        questionTitle: question.title,
+        points: awardedXp,
+        basePoints: question.xp,
+        usedGuides,
+        createdAt: serverTimestamp(),
+      });
+    } catch {
+      setNotice('화면 진행도는 반영되었습니다. Firestore 규칙 배포 후 서버에도 저장됩니다.');
+    }
+  }
+
+  function handleUseGuide(questionId, guideKey) {
+    if (!xpPenaltyGuideKeys.has(guideKey)) return;
+    setUsedGuidesByQuestion((current) => {
+      const used = current[questionId] || [];
+      if (used.includes(guideKey)) return current;
+      return { ...current, [questionId]: [...used, guideKey] };
     });
   }
 
@@ -316,11 +430,11 @@ function App() {
           </button>
           <span className="topChip strong">
             <Trophy size={15} />
-            순위 -
+            순위 {currentRank ? `#${currentRank}` : '-'}
           </span>
           <span className="topChip strong">
             <Flame size={15} />
-            0 XP
+            {earnedXp.toLocaleString()} XP
           </span>
           <span className="topChip strong questionCountChip">{totalQuestionCount}문항</span>
           <button className="topChip" onClick={signOutUser}>
@@ -334,11 +448,11 @@ function App() {
         <SkillTree
           selectedGrade={selectedGrade}
           selectedUnit={selectedUnit}
-          solvedQuestionIds={solvedQuestionIds}
           getSolvedCount={getSolvedCount}
+          isUnitUnlockedById={isUnitUnlockedById}
           onSelectGrade={handleSelectGrade}
         />
-        <RankingPanel user={user} />
+        <RankingPanel user={user} earnedXp={earnedXp} currentRank={currentRank} />
         <div className="studySplit" style={{ '--study-left': `${studySplit}%` }}>
           <ChallengePanel
             selectedGrade={selectedGrade}
@@ -346,6 +460,7 @@ function App() {
             selectedQuestion={selectedQuestion}
             selectedQuestionIndex={selectedQuestionIndex}
             solvedQuestionIds={solvedQuestionIds}
+            usedGuides={usedGuidesByQuestion[selectedQuestion.id] || []}
             onSelectQuestion={setSelectedQuestionIndex}
             onSelectUnit={handleSelectUnit}
             onComplete={handleCompleteMission}
@@ -356,7 +471,7 @@ function App() {
             aria-label="문제와 풀이 도우미 폭 조절"
             onPointerDown={startStudyResize}
           />
-          <TutorPanel question={selectedQuestion} />
+          <TutorPanel question={selectedQuestion} onUseGuide={handleUseGuide} />
         </div>
       </section>
 
@@ -535,7 +650,7 @@ function ParentDashboard({ onApproveChild, approvedChild }) {
                   <div><span>지난주 대비</span><strong>0</strong></div>
                   <div><span>랭킹 변화</span><strong>{child.rank ?? '-'}</strong></div>
                 </section>
-                <button type="button" onClick={() => onApproveChild(child.displayName || child.email || child.id)}>
+                <button type="button" onClick={() => onApproveChild(child)}>
                   {approvedChild === (child.displayName || child.email || child.id) ? '선택된 자녀' : '자녀 선택'}
                 </button>
               </article>
@@ -842,9 +957,7 @@ function ProblemManager() {
   );
 }
 
-function SkillTree({ selectedGrade, selectedUnit, solvedQuestionIds, getSolvedCount, onSelectGrade }) {
-  const allUnits = grades.flatMap((grade) => grade.units);
-
+function SkillTree({ selectedGrade, selectedUnit, getSolvedCount, isUnitUnlockedById, onSelectGrade }) {
   return (
     <section className="arenaPanel skillTreePanel">
       <div className="sectionTitle compact">
@@ -861,11 +974,8 @@ function SkillTree({ selectedGrade, selectedUnit, solvedQuestionIds, getSolvedCo
               {grade.label}
             </button>
             <div className="skillNodes">
-              {grade.units.map((unit, index) => {
-                const globalIndex = allUnits.findIndex((item) => item.id === unit.id);
-                const previousUnit = allUnits[globalIndex - 1];
-                const unlocked =
-                  globalIndex === 0 || previousUnit.questions.every((question) => solvedQuestionIds.has(question.id));
+              {grade.units.map((unit) => {
+                const unlocked = isUnitUnlockedById(unit.id);
                 return (
                 <button
                   key={unit.id}
@@ -892,9 +1002,19 @@ function SkillTree({ selectedGrade, selectedUnit, solvedQuestionIds, getSolvedCo
   );
 }
 
-function RankingPanel({ user }) {
+function RankingPanel({ user, earnedXp, currentRank }) {
   const currentName = user?.displayName || user?.email?.split('@')[0] || '학생';
-  const rankingRows = leaderboard;
+  const currentRow =
+    earnedXp > 0
+      ? {
+          name: currentName,
+          grade: '중1',
+          score: earnedXp,
+          tone: 'gold',
+          rank: currentRank,
+        }
+      : null;
+  const rankingRows = currentRow ? [currentRow, ...leaderboard] : leaderboard;
 
   return (
     <aside className="arenaPanel rankingPanel">
@@ -905,18 +1025,20 @@ function RankingPanel({ user }) {
       <div className="currentRankCard">
         <div>
           <span>현재 순위</span>
-          <strong>-</strong>
+          <strong>{currentRank ? `#${currentRank}` : '-'}</strong>
         </div>
         <i>
-          <b />
+          <b style={{ width: earnedXp > 0 ? '18%' : '0%' }} />
         </i>
-        <p>{currentName} · 학습 기록 없음</p>
+        <p>
+          {currentName} · {earnedXp > 0 ? `${earnedXp.toLocaleString()} XP` : '학습 기록 없음'}
+        </p>
       </div>
       <div className="rankDivider">
         <span>전체 순위</span>
       </div>
       <div className="leaderboard rankingList">
-        {rankingRows.length === 0 && <p className="emptyState">랭킹 데이터가 없습니다.</p>}
+        {rankingRows.length === 0 && <p className="emptyState">아직 풀이 기록이 없습니다.</p>}
         {rankingRows.slice(0, 5).map((row, index) => (
           <div className={`rankRow rankTone-${row.tone}`} key={`${row.name}-${index}`}>
             <span>{index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : index + 1}</span>
@@ -944,6 +1066,7 @@ function ChallengePanel({
   selectedQuestion,
   selectedQuestionIndex,
   solvedQuestionIds,
+  usedGuides,
   onSelectQuestion,
   onSelectUnit,
   onComplete,
@@ -953,7 +1076,13 @@ function ChallengePanel({
   const [celebrate, setCelebrate] = useState(false);
   const [showWrongFeedback, setShowWrongFeedback] = useState(false);
   const isCorrect = selectedChoice === question.answerIndex;
+  const awardedXp = calculateAwardedXp(question, usedGuides);
+  const penaltyCount = usedGuides.filter((key) => xpPenaltyGuideKeys.has(key)).length;
   const solvedInUnit = selectedUnit.questions.filter((item) => solvedQuestionIds.has(item.id)).length;
+  const isSolved = solvedQuestionIds.has(question.id);
+  const unitProgress = selectedUnit.questions.length > 0
+    ? Math.round((solvedInUnit / selectedUnit.questions.length) * 100)
+    : 0;
 
   useEffect(() => {
     setSelectedChoice(null);
@@ -976,6 +1105,9 @@ function ChallengePanel({
     setSelectedChoice(index);
     if (index === question.answerIndex) {
       setCelebrate(true);
+      if (!isSolved) {
+        onComplete(question);
+      }
       window.setTimeout(() => setCelebrate(false), 1200);
     }
   }
@@ -998,15 +1130,15 @@ function ChallengePanel({
       <div className="progressLine">
         <div className="progressHeader">
           <span>스킬 진행도</span>
-          <b>{solvedInUnit}문제 완료</b>
+          <b>{solvedInUnit}/{selectedUnit.questions.length}문제 완료 · 현재 {selectedQuestionIndex + 1}번</b>
         </div>
-        <i style={{ width: `${selectedUnit.progress}%` }} />
+        <i style={{ width: `${unitProgress}%` }} />
       </div>
       <article className="problemCard">
         <div className="problemPrompt">
           <div className="problemMeta">
             <span>{'★'.repeat(question.difficulty ?? selectedUnit.difficulty)}{'☆'.repeat(5 - (question.difficulty ?? selectedUnit.difficulty))}</span>
-            <b>+{question.xp} XP</b>
+            <b>{penaltyCount > 0 ? `+${awardedXp} XP (${penaltyCount * 5}% 차감)` : `+${question.xp} XP`}</b>
             <button>개념 학습</button>
           </div>
           <h3>{question.stem}</h3>
@@ -1046,13 +1178,15 @@ function ChallengePanel({
         </ol>
         {selectedChoice !== null && (isCorrect || showWrongFeedback) && (
           <div className={isCorrect ? 'feedbackBox correct' : 'feedbackBox wrong'}>
-            <strong>{isCorrect ? `정답입니다. 콤보 유지, +${question.xp} XP` : '오답'}</strong>
+            <strong>{isCorrect ? `정답입니다. +${awardedXp} XP` : '오답'}</strong>
             <p>{isCorrect ? question.explanation : question.mistakes[0]}</p>
           </div>
         )}
       </article>
       <div className="problemActions">
-        <button onClick={() => onComplete(question)}>완료</button>
+        <button onClick={() => onComplete(question)} disabled={isSolved}>
+          {isSolved ? '완료됨' : '완료'}
+        </button>
         <button
           onClick={() => onSelectQuestion(Math.min(selectedUnit.questions.length - 1, selectedQuestionIndex + 1))}
           disabled={selectedQuestionIndex >= selectedUnit.questions.length - 1}
@@ -1071,7 +1205,7 @@ function ChallengePanel({
   );
 }
 
-function TutorPanel({ question }) {
+function TutorPanel({ question, onUseGuide }) {
   const [activeGuide, setActiveGuide] = useState('concept');
 
   useEffect(() => {
@@ -1097,7 +1231,10 @@ function TutorPanel({ question }) {
             key={button.key}
             className={activeGuide === button.key ? 'active' : ''}
             type="button"
-            onClick={() => setActiveGuide(button.key)}
+            onClick={() => {
+              setActiveGuide(button.key);
+              onUseGuide(question.id, button.key);
+            }}
           >
             <span>{button.label}</span>
             {button.meta && <b>{button.meta}</b>}
@@ -1134,9 +1271,19 @@ function GuideContent({ question, activeGuide }) {
     return (
       <div className="conceptBox">
         <h3>연표 힌트</h3>
+        <p>
+          이 문제는 시대 순서와 배경을 좁히는 도움입니다. 정답을 바로 외우기보다, 단서가 어느 시기에 놓이는지
+          먼저 잡아야 합니다.
+        </p>
         <ul>
           {question.lesson.context.map((item) => (
             <li key={item}>{item}</li>
+          ))}
+        </ul>
+        <h3>문제 단서</h3>
+        <ul>
+          {question.concepts.map((concept) => (
+            <li key={concept}>{concept}</li>
           ))}
         </ul>
         <h3>풀이 순서</h3>
@@ -1145,6 +1292,8 @@ function GuideContent({ question, activeGuide }) {
             <li key={step}>{step}</li>
           ))}
         </ol>
+        <h3>마지막 확인</h3>
+        <p>{question.explanation}</p>
       </div>
     );
   }
@@ -1153,6 +1302,10 @@ function GuideContent({ question, activeGuide }) {
     return (
       <div className="conceptBox">
         <h3>오답 소거</h3>
+        <p>
+          선택지를 하나씩 지우는 도움입니다. 정답을 찍기 전에, 시대 범위와 핵심 표현이 맞지 않는 선택지를 먼저
+          제거하세요.
+        </p>
         <ul>
           {question.mistakes.map((mistake) => (
             <li key={mistake}>{mistake}</li>
@@ -1167,6 +1320,8 @@ function GuideContent({ question, activeGuide }) {
             </li>
           ))}
         </ol>
+        <h3>정답 판단 기준</h3>
+        <p>{question.explanation}</p>
       </div>
     );
   }
