@@ -1,0 +1,1215 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import { createRoot } from 'react-dom/client';
+import {
+  BookOpenCheck,
+  CircleCheck,
+  Flame,
+  GraduationCap,
+  History,
+  LineChart,
+  LogIn,
+  LogOut,
+  NotebookPen,
+  Sparkles,
+  Target,
+  Trophy,
+  Users,
+} from 'lucide-react';
+import {
+  auth,
+  db,
+  isFirebaseConfigured,
+  listStudentUsers,
+  signInWithGoogle,
+  signOutUser,
+  subscribeToAuth,
+  upsertUserProfile,
+} from './services/firebase';
+import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
+import { grades, totalQuestionCount } from './data/curriculum';
+import './styles.css';
+
+const leaderboard = [];
+
+function App() {
+  const isManagerRoute = window.location.pathname.startsWith('/manager');
+  const isParentRoute = window.location.pathname.startsWith('/parent');
+  const [role, setRole] = useState(isManagerRoute ? 'admin' : isParentRoute ? 'parent' : '');
+  const [selectedGrade, setSelectedGrade] = useState(grades[0]);
+  const [selectedUnitId, setSelectedUnitId] = useState(grades[0].units[0].id);
+  const [user, setUser] = useState(null);
+  const [authReady, setAuthReady] = useState(false);
+  const [note, setNote] = useState('');
+  const [notice, setNotice] = useState('');
+  const [studySplit, setStudySplit] = useState(50);
+  const [selectedQuestionIndex, setSelectedQuestionIndex] = useState(0);
+  const [solvedQuestionIds, setSolvedQuestionIds] = useState(() => new Set());
+  const [approvedChild, setApprovedChild] = useState(() => localStorage.getItem('historyApprovedChild') || '');
+
+  useEffect(() => {
+    if (isManagerRoute) {
+      setRole('admin');
+    } else if (isParentRoute) {
+      setRole('parent');
+    } else if (!user) {
+      setRole('');
+    }
+  }, [isManagerRoute, isParentRoute, user]);
+
+  useEffect(() => {
+    if (!isFirebaseConfigured) {
+      setAuthReady(true);
+      return undefined;
+    }
+
+    return subscribeToAuth(async (nextUser) => {
+      setUser(nextUser);
+      setAuthReady(true);
+      if (nextUser) {
+        const storedRole =
+          sessionStorage.getItem('historyPendingLoginRole') ||
+          localStorage.getItem('historyLoginRole') ||
+          role ||
+          'student';
+        setRole(storedRole);
+        await upsertUserProfile(nextUser, storedRole);
+        setSelectedGrade(grades[0]);
+        setSelectedUnitId(grades[0].units[0].id);
+        setSelectedQuestionIndex(0);
+      }
+    });
+  }, [role]);
+
+  const totalProgress = useMemo(
+    () => Math.round(grades.reduce((sum, item) => sum + item.progress, 0) / grades.length),
+    [],
+  );
+
+  const selectedUnit = useMemo(
+    () => selectedGrade.units.find((unit) => unit.id === selectedUnitId) ?? selectedGrade.units[0],
+    [selectedGrade, selectedUnitId],
+  );
+  const selectedQuestion = selectedUnit.questions[selectedQuestionIndex] ?? selectedUnit.questions[0];
+
+  useEffect(() => {
+    setSelectedQuestionIndex(0);
+  }, [selectedUnit.id]);
+
+  function getSolvedCount(unit) {
+    return unit.questions.filter((question) => solvedQuestionIds.has(question.id)).length;
+  }
+
+  function isUnitUnlocked(grade, unitIndex) {
+    const allUnits = grades.flatMap((gradeItem) => gradeItem.units);
+    const targetUnit = grade.units[unitIndex];
+    const globalIndex = allUnits.findIndex((unit) => unit.id === targetUnit.id);
+    if (globalIndex <= 0) return true;
+    const previousUnit = allUnits[globalIndex - 1];
+    return getSolvedCount(previousUnit) >= previousUnit.questions.length;
+  }
+
+  function handleSelectGrade(grade, unitId = grade.units[0].id) {
+    const unitIndex = grade.units.findIndex((unit) => unit.id === unitId);
+    if (!isUnitUnlocked(grade, Math.max(0, unitIndex))) {
+      setNotice('이전 스킬의 모든 문항을 완료하면 열립니다.');
+      return;
+    }
+    setSelectedGrade(grade);
+    setSelectedUnitId(unitId);
+  }
+
+  function handleSelectUnit(unitId) {
+    handleSelectGrade(selectedGrade, unitId);
+  }
+
+  function startStudyResize(event) {
+    const container = event.currentTarget.parentElement;
+    const pointerId = event.pointerId;
+    event.currentTarget.setPointerCapture(pointerId);
+
+    function move(pointerEvent) {
+      const rect = container.getBoundingClientRect();
+      const next = ((pointerEvent.clientX - rect.left) / rect.width) * 100;
+      setStudySplit(Math.min(68, Math.max(32, next)));
+    }
+
+    function stop() {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', stop);
+    }
+
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', stop);
+  }
+
+  async function handleGoogleSignIn(loginRole = role || (isManagerRoute ? 'admin' : isParentRoute ? 'parent' : 'student')) {
+    if (!isFirebaseConfigured) {
+      setNotice('Firebase 환경 변수를 입력하면 Google 로그인이 활성화됩니다.');
+      return;
+    }
+    setRole(loginRole);
+    localStorage.setItem('historyLoginRole', loginRole);
+    sessionStorage.setItem('historyPendingLoginRole', loginRole);
+    const credential = await signInWithGoogle();
+    await upsertUserProfile(credential.user, loginRole);
+    sessionStorage.removeItem('historyPendingLoginRole');
+    setNotice('Google 계정으로 로그인되었습니다.');
+    if (loginRole === 'parent' && !isParentRoute) {
+      window.location.assign('/parent');
+    }
+    if (loginRole === 'student' && (isParentRoute || isManagerRoute)) {
+      window.location.assign('/');
+    }
+  }
+
+  function handleApproveChild(childName) {
+    localStorage.setItem('historyApprovedChild', childName);
+    setApprovedChild(childName);
+    setNotice(`${childName} 자녀가 선택되었습니다. 학생 계정은 이제 문제를 풀 수 있습니다.`);
+  }
+
+  async function handleCompleteMission(question) {
+    setSolvedQuestionIds((current) => new Set(current).add(question.id));
+    setNotice(`${selectedUnit.title} 문제 풀이 기록이 준비되었습니다.`);
+    if (!isFirebaseConfigured || !auth.currentUser) return;
+
+    await addDoc(collection(db, 'studyLogs', auth.currentUser.uid, 'logs'), {
+      role,
+      gradeId: selectedGrade.id,
+      gradeLabel: selectedGrade.label,
+      unitId: selectedUnit.id,
+      unitTitle: selectedUnit.title,
+      questionId: question.id,
+      questionTitle: question.title,
+      points: question.xp,
+      createdAt: serverTimestamp(),
+    });
+  }
+
+  async function handleSaveNote() {
+    const trimmed = note.trim();
+    if (!trimmed) return;
+    setNotice('풀이 노트가 저장되었습니다.');
+    setNote('');
+
+    if (!isFirebaseConfigured || !auth.currentUser) return;
+
+    await addDoc(collection(db, 'notes', auth.currentUser.uid, 'items'), {
+      role,
+      gradeId: selectedGrade.id,
+      body: trimmed,
+      createdAt: serverTimestamp(),
+    });
+  }
+
+  if (!authReady || !user) {
+    return (
+      <LoginScreen
+        isManager={isManagerRoute}
+        authReady={authReady}
+        notice={notice}
+        onGoogleSignIn={handleGoogleSignIn}
+      />
+    );
+  }
+
+  if (isManagerRoute && localStorage.getItem('historyLoginRole') !== 'admin') {
+    return (
+      <LoginScreen
+        isManager
+        authReady={authReady}
+        notice="관리자 계정으로 다시 로그인하세요."
+        onGoogleSignIn={handleGoogleSignIn}
+      />
+    );
+  }
+
+  if (isParentRoute && localStorage.getItem('historyLoginRole') !== 'parent') {
+    return (
+      <LoginScreen
+        isManager={false}
+        authReady={authReady}
+        notice="학부모 계정으로 다시 로그인하세요."
+        onGoogleSignIn={handleGoogleSignIn}
+      />
+    );
+  }
+
+  if (isManagerRoute) {
+    return (
+      <main className="arenaShell managerShell">
+        <header className="arenaTopbar">
+          <div className="arenaBrand">
+            <span className="brandMark">
+              <History size={22} />
+            </span>
+            <span>
+              <strong>History Study Arena</strong>
+              <small>관리자 페이지</small>
+            </span>
+          </div>
+          <div className="arenaActions">
+            <span className="topChip strong">{user.displayName || user.email}</span>
+            <button className="topChip" onClick={signOutUser}>
+              <LogOut size={15} />
+              로그아웃
+            </button>
+          </div>
+        </header>
+        <ManagerBoard />
+      </main>
+    );
+  }
+
+  if (isParentRoute || role === 'parent') {
+    return (
+      <main className="arenaShell managerShell">
+        <header className="arenaTopbar">
+          <div className="arenaBrand">
+            <span className="brandMark">
+              <History size={22} />
+            </span>
+            <span>
+              <strong>History Study Arena</strong>
+              <small>학부모 페이지</small>
+            </span>
+          </div>
+          <div className="arenaActions">
+            <span className="topChip strong">{user.displayName || user.email}</span>
+            <button className="topChip" onClick={signOutUser}>
+              <LogOut size={15} />
+              로그아웃
+            </button>
+          </div>
+        </header>
+        <ParentDashboard onApproveChild={handleApproveChild} approvedChild={approvedChild} />
+      </main>
+    );
+  }
+
+  if (!approvedChild) {
+    return (
+      <PendingApprovalScreen
+        user={user}
+        notice={notice}
+        onSignOut={signOutUser}
+      />
+    );
+  }
+
+  return (
+    <main className="arenaShell">
+      <header className="arenaTopbar">
+        <div className="arenaBrand">
+          <span className="brandMark">
+            <History size={22} />
+          </span>
+          <span>
+            <strong>History Study Arena</strong>
+            <small>중등부터 고등까지, 시대 흐름을 열며 푸는 역사</small>
+          </span>
+        </div>
+        <div className="arenaActions">
+          <button className="topChip active" onClick={() => setRole('student')}>
+            <GraduationCap size={15} />
+            학생
+          </button>
+          <span className="topChip strong">
+            <Trophy size={15} />
+            순위 -
+          </span>
+          <span className="topChip strong">
+            <Flame size={15} />
+            0 XP
+          </span>
+          <span className="topChip strong questionCountChip">{totalQuestionCount}문항</span>
+          <button className="topChip" onClick={signOutUser}>
+            <LogOut size={15} />
+            로그아웃
+          </button>
+        </div>
+      </header>
+
+      <section className="arenaGrid">
+        <SkillTree
+          selectedGrade={selectedGrade}
+          selectedUnit={selectedUnit}
+          solvedQuestionIds={solvedQuestionIds}
+          getSolvedCount={getSolvedCount}
+          onSelectGrade={handleSelectGrade}
+        />
+        <RankingPanel user={user} />
+        <div className="studySplit" style={{ '--study-left': `${studySplit}%` }}>
+          <ChallengePanel
+            selectedGrade={selectedGrade}
+            selectedUnit={selectedUnit}
+            selectedQuestion={selectedQuestion}
+            selectedQuestionIndex={selectedQuestionIndex}
+            solvedQuestionIds={solvedQuestionIds}
+            onSelectQuestion={setSelectedQuestionIndex}
+            onSelectUnit={handleSelectUnit}
+            onComplete={handleCompleteMission}
+          />
+          <button
+            className="splitHandle"
+            type="button"
+            aria-label="문제와 풀이 도우미 폭 조절"
+            onPointerDown={startStudyResize}
+          />
+          <TutorPanel question={selectedQuestion} />
+        </div>
+      </section>
+
+      {notice && (
+        <div className="toast" role="status">
+          <CircleCheck size={18} />
+          {notice}
+        </div>
+      )}
+    </main>
+  );
+}
+
+function LoginScreen({ isManager, authReady, notice, onGoogleSignIn }) {
+  return (
+    <main className="loginScreen">
+      <section className="loginArt">
+        <div className="loginPanel">
+          <span className="brandMark loginBrandMark">
+            <History size={30} />
+          </span>
+          <h1>{isManager ? '관리자 페이지 접속' : 'History Study Arena'}</h1>
+          <p className={isManager ? 'managerLoginWarning' : ''}>
+            {isManager
+              ? '관리자만 접속이 가능합니다.'
+              : '중1부터 고3까지, 한국사와 세계사 흐름을 문제로 익히는 학습장입니다.'}
+          </p>
+          {!isManager && (
+            <div className="loginRoleGrid" role="group" aria-label="로그인 역할 선택">
+              <button
+                type="button"
+                disabled={!authReady}
+                onClick={() => onGoogleSignIn('student')}
+              >
+                <GraduationCap size={18} />
+                <strong>학생</strong>
+                <span>학부모 승인 후 문제 풀이</span>
+              </button>
+            <button
+              type="button"
+              disabled={!authReady}
+              onClick={() => onGoogleSignIn('parent')}
+            >
+              <Users size={18} />
+              <strong>학부모</strong>
+              <span>자녀 학습 현황 확인</span>
+            </button>
+            </div>
+          )}
+          {isManager && (
+            <button className="googleLoginButton" disabled={!authReady} onClick={() => onGoogleSignIn('admin')}>
+              <LogIn size={15} />
+              Google 로그인
+            </button>
+          )}
+          {notice && <strong className="loginNotice">{notice}</strong>}
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function PendingApprovalScreen({ user, notice, onSignOut }) {
+  return (
+    <main className="approvalScreen">
+      <section className="approvalCard">
+        <span className="brandMark loginBrandMark">
+          <History size={30} />
+        </span>
+        <h1>학부모 승인 대기</h1>
+        <p>
+          {user?.displayName || user?.email} 계정으로 로그인되었습니다. 학부모가 자녀를 선택하면 중1 자료와 역사 해석부터
+          학습을 시작할 수 있습니다.
+        </p>
+        <div className="approvalSteps">
+          <span>1. 학생 로그인 완료</span>
+          <span>2. 학부모가 자녀 선택</span>
+          <span>3. 승인 후 문제 풀이 시작</span>
+        </div>
+        <button type="button" onClick={onSignOut}>
+          다른 계정으로 로그인
+        </button>
+        {notice && <strong className="loginNotice">{notice}</strong>}
+      </section>
+    </main>
+  );
+}
+
+function ParentDashboard({ onApproveChild, approvedChild }) {
+  const [childQuery, setChildQuery] = useState('');
+  const [children, setChildren] = useState([]);
+  const [childrenLoading, setChildrenLoading] = useState(false);
+  const [childrenError, setChildrenError] = useState('');
+  const activities = [];
+  const searched = childQuery.trim().length > 0;
+  const filteredChildren = searched
+    ? children.filter((child) =>
+        `${child.displayName ?? ''} ${child.email ?? ''} ${child.grade ?? ''}`.toLowerCase().includes(childQuery.trim().toLowerCase()),
+      )
+    : [];
+
+  useEffect(() => {
+    let alive = true;
+    setChildrenLoading(true);
+    setChildrenError('');
+    listStudentUsers()
+      .then((items) => {
+        if (alive) setChildren(items);
+      })
+      .catch(() => {
+        if (alive) setChildrenError('학생 목록을 불러오지 못했습니다. Firestore 권한을 확인하세요.');
+      })
+      .finally(() => {
+        if (alive) setChildrenLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  return (
+    <section className="parentDashboard">
+      <div className="parentMain">
+        <div className="arenaPanel managerPanel">
+          <div className="sectionTitle compact">
+            <Users size={18} />
+            <h2>자녀 학습 현황</h2>
+          </div>
+          <input
+            className="managerSearch"
+            value={childQuery}
+            placeholder="자녀 이름 또는 이메일로 검색"
+            onChange={(event) => setChildQuery(event.target.value)}
+          />
+          <div className="childCards">
+            {!searched && (
+              <p className="emptyState">자녀 이름 또는 이메일을 검색하면 학생 목록이 표시됩니다.</p>
+            )}
+            {childrenLoading && <p className="emptyState">학생 목록을 불러오는 중입니다.</p>}
+            {childrenError && <p className="emptyState errorState">{childrenError}</p>}
+            {searched && filteredChildren.length === 0 && (
+              <p className="emptyState">검색 결과가 없습니다.</p>
+            )}
+            {filteredChildren.map((child, index) => (
+              <article key={child.id} className="childCard">
+                <header>
+                  <span className="childAvatar"><Users size={18} /></span>
+                  <div>
+                    <strong>자녀({child.displayName || child.email}) · {child.grade || '학년 미지정'}</strong>
+                    <small>검색 결과 {filteredChildren.length}명 중 {index + 1}번째</small>
+                  </div>
+                  <b>{(child.xp ?? 0).toLocaleString()} XP</b>
+                </header>
+                <div className="childMetrics">
+                  <Stat icon={Flame} label="XP" value={(child.xp ?? 0).toLocaleString()} />
+                  <Stat icon={BookOpenCheck} label="문제 해결" value={child.solved ?? 0} />
+                  <Stat icon={LineChart} label="평균 XP 대비" value={child.avgXp ?? '-'} />
+                  <Stat icon={Target} label="평균 해결 수 대비" value={child.avgSolved ?? '-'} />
+                </div>
+                <section className="childSection">
+                  <h3>상단 요약</h3>
+                  <div><span>현재 진행 단원</span><strong>자료와 역사 해석</strong></div>
+                  <div><span>전체 완료율</span><strong>{child.completion ?? '-'}</strong></div>
+                  <div><span>최근 7일 해결</span><strong>0문제</strong></div>
+                  <div><span>최근 7일 정답률</span><strong>-</strong></div>
+                </section>
+                <section className="childSection">
+                  <h3>위험 신호</h3>
+                  <div><span>반복 오답 문제</span><strong>없음</strong></div>
+                  <div><span>힌트 많이 쓴 단원</span><strong>없음</strong></div>
+                  <div><span>오래 멈춘 단원</span><strong>기록 없음</strong></div>
+                </section>
+                <section className="childSection">
+                  <h3>비교/성장</h3>
+                  <div><span>같은 학년 평균 대비</span><strong>{child.avgSolved ?? '-'}</strong></div>
+                  <div><span>지난주 대비</span><strong>0</strong></div>
+                  <div><span>랭킹 변화</span><strong>{child.rank ?? '-'}</strong></div>
+                </section>
+                <button type="button" onClick={() => onApproveChild(child.displayName || child.email || child.id)}>
+                  {approvedChild === (child.displayName || child.email || child.id) ? '선택된 자녀' : '자녀 선택'}
+                </button>
+              </article>
+            ))}
+          </div>
+        </div>
+        <div className="arenaPanel managerPanel">
+          <div className="sectionTitle compact">
+            <BookOpenCheck size={18} />
+            <h2>자녀 학습 기록</h2>
+          </div>
+          <p className="managerSubtitle">최근 활동</p>
+          <div className="activityTableWrap">
+            <table className="activityTable">
+              <thead>
+                <tr>
+                  <th>자녀</th>
+                  <th>날짜</th>
+                  <th>구분</th>
+                  <th>문제</th>
+                  <th>입력 답</th>
+                  <th>상태</th>
+                  <th>사용한 도움</th>
+                </tr>
+              </thead>
+              <tbody>
+                {activities.map((row) => (
+                  <tr key={row.join('-')}>
+                    {row.map((cell, index) => (
+                      <td key={`${cell}-${index}`} className={index === 5 ? 'positiveCell' : ''}>{cell}</td>
+                    ))}
+                  </tr>
+                ))}
+                {activities.length === 0 && (
+                  <tr>
+                    <td colSpan="7">학습 기록이 없습니다.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ManagerBoard() {
+  const [managerTab, setManagerTab] = useState('members');
+  const members = [];
+
+  return (
+    <section className="managerBoard">
+      <aside className="managerSidebar">
+        <button className={managerTab === 'members' ? 'active' : ''} type="button" onClick={() => setManagerTab('members')}><Users size={16} />회원 관리</button>
+        <button className={managerTab === 'stats' ? 'active' : ''} type="button" onClick={() => setManagerTab('stats')}><LineChart size={16} />학습 통계</button>
+        <button className={managerTab === 'problems' ? 'active' : ''} type="button" onClick={() => setManagerTab('problems')}><BookOpenCheck size={16} />문제 관리</button>
+        <button className={managerTab === 'logs' ? 'active' : ''} type="button" onClick={() => setManagerTab('logs')}><NotebookPen size={16} />감사 로그</button>
+        <button className={managerTab === 'usage' ? 'active' : ''} type="button" onClick={() => setManagerTab('usage')}><Sparkles size={16} />사용량</button>
+      </aside>
+      <div className="arenaPanel managerPanel managerConsole">
+        {managerTab === 'members' && <MemberManager members={members} />}
+        {managerTab === 'stats' && <LearningStats />}
+        {managerTab === 'problems' && <ProblemManager />}
+        {managerTab === 'logs' && <AuditLog />}
+        {managerTab !== 'members' && managerTab !== 'stats' && managerTab !== 'problems' && managerTab !== 'logs' && <ManagerPlaceholder tab={managerTab} />}
+      </div>
+    </section>
+  );
+}
+
+function MemberManager({ members }) {
+  return (
+    <>
+      <div className="sectionTitle compact">
+        <Users size={18} />
+        <h2>회원 관리</h2>
+      </div>
+      <p className="managerSubtitle">회원 관리</p>
+      <div className="memberTableWrap">
+        <table className="memberTable">
+          <thead>
+            <tr>
+              <th>회원</th>
+              <th>이름</th>
+              <th>학년</th>
+              <th>XP</th>
+              <th>해결</th>
+              <th>초기화</th>
+              <th>권한</th>
+              <th>자녀</th>
+            </tr>
+          </thead>
+          <tbody>
+            {members.map((member) => (
+              <tr key={member.email}>
+                <td>
+                  <strong>{member.type}</strong>
+                  <span>{member.email}</span>
+                </td>
+                <td><input defaultValue={member.name} /></td>
+                <td><input defaultValue={member.grade} /></td>
+                <td><input defaultValue={member.xp} /></td>
+                <td><input defaultValue={member.solved} /></td>
+                <td><button className="resetButton" type="button">초기화</button></td>
+                <td>
+                  <select defaultValue={member.role}>
+                    <option value="student">학생</option>
+                    <option value="parent">학부모</option>
+                    <option value="admin">관리자(서비스 운영자)</option>
+                  </select>
+                </td>
+                <td>
+                  {member.role === 'parent' ? (
+                    <select defaultValue={member.child}>
+                      <option>-</option>
+                    </select>
+                  ) : (
+                    <span>-</span>
+                  )}
+                </td>
+              </tr>
+            ))}
+            {members.length === 0 && (
+              <tr>
+                <td colSpan="8">회원 데이터가 없습니다.</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
+function LearningStats() {
+  return (
+    <>
+      <div className="managerPanelHeader">
+        <div className="sectionTitle compact">
+          <LineChart size={18} />
+          <h2>학습 통계</h2>
+        </div>
+        <div className="managerTools">
+          <select defaultValue="all">
+            <option value="all">전체 학생</option>
+          </select>
+          <button type="button">리포트 출력</button>
+          <button type="button" disabled>부모에게 발송</button>
+        </div>
+      </div>
+      <div className="statSummaryGrid">
+        <Stat icon={Users} label="전체 학생" value="0명" />
+        <Stat icon={BookOpenCheck} label="해결 문제" value="0개" />
+        <Stat icon={Target} label="평균 해결" value="0개" />
+        <Stat icon={CircleCheck} label="정답률" value="-" />
+      </div>
+      <div className="statsGrid">
+        <section className="statChartPanel">
+          <h3>전체 스킬 완료 현황</h3>
+          <DonutChart value="0" label="완료" colors={['#14b8a6', '#38bdf8', '#f59e0b']} />
+          <p><span className="dot teal" />완료 스킬 0 <span className="dot blue" />진행 중 스킬 0 <span className="dot amber" />미완료 스킬 0</p>
+        </section>
+        <section className="statChartPanel">
+          <h3>스킬별 해결 수</h3>
+          <DonutChart value="0" label="해결" colors={['#14b8a6', '#38bdf8', '#f59e0b']} />
+          <p>표시할 데이터가 없습니다.</p>
+        </section>
+        <section className="statChartPanel empty">
+          <h3>스킬별 오답 수</h3>
+          <p>표시할 데이터가 없습니다.</p>
+        </section>
+        <section className="statChartPanel empty">
+          <h3>스킬별 도움 사용량</h3>
+          <p>표시할 데이터가 없습니다.</p>
+        </section>
+      </div>
+      <section className="weeklyPanel">
+        <h3>최근 7일 학습 흐름</h3>
+        <div className="weeklyBars">
+          {['06. 19.', '06. 20.', '06. 21.', '06. 22.', '06. 23.', '06. 24.', '06. 25.'].map((day) => (
+            <div key={day}>
+              <i />
+              <strong>0</strong>
+              <span>{day}</span>
+            </div>
+          ))}
+        </div>
+      </section>
+    </>
+  );
+}
+
+function DonutChart({ value, label }) {
+  return (
+    <div className="donutChart">
+      <div>
+        <strong>{value}</strong>
+        <span>{label}</span>
+      </div>
+    </div>
+  );
+}
+
+function ManagerPlaceholder({ tab }) {
+  const labels = { problems: '문제 관리', logs: '감사 로그', usage: '사용량' };
+  return (
+    <div className="managerPlaceholder">
+      <h2>{labels[tab]}</h2>
+      <p>화면 구성을 준비 중입니다.</p>
+    </div>
+  );
+}
+
+function AuditLog() {
+  return (
+    <>
+      <div className="managerPanelHeader">
+        <div className="sectionTitle compact">
+          <NotebookPen size={18} />
+          <h2>감사 로그</h2>
+        </div>
+        <div className="managerTools">
+          <input className="auditSearch" placeholder="학생, 문제, 결과 검색" />
+        </div>
+      </div>
+      <div className="auditTableWrap">
+        <table className="auditTable">
+          <thead>
+            <tr>
+              <th>날짜</th>
+              <th>학생</th>
+              <th>구분</th>
+              <th>문제</th>
+              <th>입력 답</th>
+              <th>결과</th>
+              <th>사용한 도움</th>
+            </tr>
+          </thead>
+        </table>
+        <p>검색 결과가 없습니다.</p>
+      </div>
+    </>
+  );
+}
+
+function ProblemManager() {
+  const unit = grades[0].units[0];
+  const rows = unit.questions.slice(0, 15);
+
+  return (
+    <>
+      <div className="managerPanelHeader">
+        <div className="sectionTitle compact">
+          <BookOpenCheck size={18} />
+          <h2>문제 관리</h2>
+        </div>
+        <div className="managerTools">
+          <select defaultValue={unit.id}>
+            <option value={unit.id}>중1 · {unit.title}</option>
+          </select>
+          <input className="problemSearch" placeholder="문제, 정답, 힌트 검색" />
+        </div>
+      </div>
+      <div className="statSummaryGrid problemSummaryGrid">
+        <Stat icon={BookOpenCheck} label="전체 문제" value={`${unit.questions.length}개`} />
+        <Stat icon={Target} label="조회 결과" value={`${unit.questions.length}개`} />
+        <Stat icon={Users} label="화면 표시" value={`${unit.questions.length}개`} />
+        <Stat icon={CircleCheck} label="상태" value="준비" />
+      </div>
+      <div className="problemAdminTableWrap">
+        <table className="problemAdminTable">
+          <thead>
+            <tr>
+              <th>단원</th>
+              <th>번호</th>
+              <th>난이도</th>
+              <th>문제</th>
+              <th>정답</th>
+              <th>힌트</th>
+              <th>풀이 방향</th>
+              <th>개념 학습</th>
+              <th>저장</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((question, index) => (
+              <tr key={question.id}>
+                <td>{unit.title}</td>
+                <td>{index + 1}</td>
+                <td><input defaultValue={question.difficulty} /></td>
+                <td><textarea defaultValue={question.stem} /></td>
+                <td><input defaultValue={question.choices[question.answerIndex]} /></td>
+                <td><textarea defaultValue={`## 힌트\n### 단원: ${unit.title}\n- 자료의 핵심 단어를 먼저 확인하세요.`} /></td>
+                <td><textarea defaultValue={`## 다음 한 단계\n- 단원: ${unit.title}\n- 개념: ${question.source}`} /></td>
+                <td><textarea defaultValue={`## 개념 다시보기\n### ${unit.title}\n- ${question.source}`} /></td>
+                <td><button type="button" disabled>저장</button></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
+function SkillTree({ selectedGrade, selectedUnit, solvedQuestionIds, getSolvedCount, onSelectGrade }) {
+  const allUnits = grades.flatMap((grade) => grade.units);
+
+  return (
+    <section className="arenaPanel skillTreePanel">
+      <div className="sectionTitle compact">
+        <BookOpenCheck size={18} />
+        <h2>스킬 트리</h2>
+      </div>
+      <div className="skillColumns">
+        {grades.map((grade) => (
+          <div className="skillColumn" key={grade.id} style={{ '--accent': grade.color }}>
+            <button
+              className={selectedGrade.id === grade.id ? 'gradeTab selected' : 'gradeTab'}
+              onClick={() => onSelectGrade(grade)}
+            >
+              {grade.label}
+            </button>
+            <div className="skillNodes">
+              {grade.units.map((unit, index) => {
+                const globalIndex = allUnits.findIndex((item) => item.id === unit.id);
+                const previousUnit = allUnits[globalIndex - 1];
+                const unlocked =
+                  globalIndex === 0 || previousUnit.questions.every((question) => solvedQuestionIds.has(question.id));
+                return (
+                <button
+                  key={unit.id}
+                  className={[
+                    'skillNode',
+                    selectedUnit.id === unit.id ? 'active' : '',
+                    unlocked ? '' : 'locked',
+                    getSolvedCount(unit) === unit.questions.length ? 'complete' : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
+                  disabled={!unlocked}
+                  onClick={() => onSelectGrade(grade, unit.id)}
+                >
+                  <b>{unit.title}</b>
+                </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function RankingPanel({ user }) {
+  const currentName = user?.displayName || user?.email?.split('@')[0] || '학생';
+  const rankingRows = leaderboard;
+
+  return (
+    <aside className="arenaPanel rankingPanel">
+      <div className="sectionTitle compact">
+        <Trophy size={18} />
+        <h2>랭킹</h2>
+      </div>
+      <div className="currentRankCard">
+        <div>
+          <span>현재 순위</span>
+          <strong>-</strong>
+        </div>
+        <i>
+          <b />
+        </i>
+        <p>{currentName} · 학습 기록 없음</p>
+      </div>
+      <div className="rankDivider">
+        <span>전체 순위</span>
+      </div>
+      <div className="leaderboard rankingList">
+        {rankingRows.length === 0 && <p className="emptyState">랭킹 데이터가 없습니다.</p>}
+        {rankingRows.slice(0, 5).map((row, index) => (
+          <div className={`rankRow rankTone-${row.tone}`} key={`${row.name}-${index}`}>
+            <span>{index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : index + 1}</span>
+            <em>
+              {typeof row.avatar === 'string' && row.avatar.startsWith('http') ? (
+                <img src={row.avatar} alt="" />
+              ) : (
+                row.avatar
+              )}
+            </em>
+            <strong title={`${row.name} (${row.grade})`}>
+              {row.name} ({row.grade})
+            </strong>
+            <b>{row.score.toLocaleString()} XP</b>
+          </div>
+        ))}
+      </div>
+    </aside>
+  );
+}
+
+function ChallengePanel({
+  selectedGrade,
+  selectedUnit,
+  selectedQuestion,
+  selectedQuestionIndex,
+  solvedQuestionIds,
+  onSelectQuestion,
+  onSelectUnit,
+  onComplete,
+}) {
+  const question = selectedQuestion;
+  const [selectedChoice, setSelectedChoice] = useState(null);
+  const [celebrate, setCelebrate] = useState(false);
+  const [showWrongFeedback, setShowWrongFeedback] = useState(false);
+  const isCorrect = selectedChoice === question.answerIndex;
+  const solvedInUnit = selectedUnit.questions.filter((item) => solvedQuestionIds.has(item.id)).length;
+
+  useEffect(() => {
+    setSelectedChoice(null);
+    setCelebrate(false);
+    setShowWrongFeedback(false);
+  }, [question.id]);
+
+  useEffect(() => {
+    if (selectedChoice === null || selectedChoice === question.answerIndex) {
+      setShowWrongFeedback(false);
+      return undefined;
+    }
+
+    setShowWrongFeedback(true);
+    const timer = window.setTimeout(() => setShowWrongFeedback(false), 1400);
+    return () => window.clearTimeout(timer);
+  }, [selectedChoice, question.answerIndex, question.id]);
+
+  function chooseAnswer(index) {
+    setSelectedChoice(index);
+    if (index === question.answerIndex) {
+      setCelebrate(true);
+      window.setTimeout(() => setCelebrate(false), 1200);
+    }
+  }
+
+  return (
+    <section className="arenaPanel challengePanel">
+      <div className="challengeHeader">
+        <div>
+          <p className="eyebrow">{selectedGrade.label} · 한국사</p>
+          <h2>{selectedGrade.course}</h2>
+        </div>
+        <select value={selectedUnit.id} aria-label="문제 선택" onChange={(event) => onSelectUnit(event.target.value)}>
+          {selectedGrade.units.map((unit) => (
+            <option key={unit.id} value={unit.id}>
+              {unit.questions[0].title}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="progressLine">
+        <div className="progressHeader">
+          <span>스킬 진행도</span>
+          <b>{solvedInUnit}문제 완료</b>
+        </div>
+        <i style={{ width: `${selectedUnit.progress}%` }} />
+      </div>
+      <article className="problemCard">
+        <div className="problemPrompt">
+          <div className="problemMeta">
+            <span>{'★'.repeat(question.difficulty ?? selectedUnit.difficulty)}{'☆'.repeat(5 - (question.difficulty ?? selectedUnit.difficulty))}</span>
+            <b>+{question.xp} XP</b>
+            <button>개념 학습</button>
+          </div>
+          <h3>{question.stem}</h3>
+          {question.source && (
+            <div className="sourceBox">
+              <span>자료</span>
+              <p>{question.source}</p>
+            </div>
+          )}
+          {question.assets?.length > 0 && (
+            <div className="problemAssets">
+              {question.assets.map((asset) => (
+                <figure key={asset.url}>
+                  <img src={asset.url} alt={asset.label} loading="lazy" />
+                  <figcaption>{asset.label}</figcaption>
+                </figure>
+              ))}
+            </div>
+          )}
+        </div>
+        <ol className="choiceList">
+          {question.choices.map((choice, index) => (
+            <li
+              key={choice}
+              className={[
+                selectedChoice === index ? 'selectedChoice' : '',
+                selectedChoice !== null && index === question.answerIndex ? 'answerChoice' : '',
+                selectedChoice === index && index !== question.answerIndex ? 'wrongChoice' : '',
+              ]
+                .filter(Boolean)
+                .join(' ')}
+            >
+              <span>{index + 1}</span>
+              <button onClick={() => chooseAnswer(index)}>{choice}</button>
+            </li>
+          ))}
+        </ol>
+        {selectedChoice !== null && (isCorrect || showWrongFeedback) && (
+          <div className={isCorrect ? 'feedbackBox correct' : 'feedbackBox wrong'}>
+            <strong>{isCorrect ? `정답입니다. 콤보 유지, +${question.xp} XP` : '오답'}</strong>
+            <p>{isCorrect ? question.explanation : question.mistakes[0]}</p>
+          </div>
+        )}
+      </article>
+      <div className="problemActions">
+        <button onClick={() => onComplete(question)}>완료</button>
+        <button
+          onClick={() => onSelectQuestion(Math.min(selectedUnit.questions.length - 1, selectedQuestionIndex + 1))}
+          disabled={selectedQuestionIndex >= selectedUnit.questions.length - 1}
+        >
+          다음 문항
+        </button>
+      </div>
+      {celebrate && (
+        <div className="confetti" aria-hidden="true">
+          {Array.from({ length: 24 }, (_, index) => (
+            <i key={index} style={{ '--x': `${(index % 12) * 8 + 4}%`, '--delay': `${(index % 6) * 0.04}s` }} />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function TutorPanel({ question }) {
+  const [activeGuide, setActiveGuide] = useState('concept');
+
+  useEffect(() => {
+    setActiveGuide('concept');
+  }, [question.id]);
+
+  const guideButtons = [
+    { key: 'reading', label: '역사 읽기' },
+    { key: 'timeline', label: '연표 힌트', meta: 'XP -5%' },
+    { key: 'eliminate', label: '오답 소거', meta: 'XP -5%' },
+    { key: 'concept', label: '개념 학습', meta: '기본 제공' },
+  ];
+
+  return (
+    <aside className="arenaPanel tutorPanel">
+      <div className="sectionTitle compact">
+        <Sparkles size={18} />
+        <h2>풀이 도우미</h2>
+      </div>
+      <div className="helperActions">
+        {guideButtons.map((button) => (
+          <button
+            key={button.key}
+            className={activeGuide === button.key ? 'active' : ''}
+            type="button"
+            onClick={() => setActiveGuide(button.key)}
+          >
+            <span>{button.label}</span>
+            {button.meta && <b>{button.meta}</b>}
+          </button>
+        ))}
+      </div>
+      <GuideContent question={question} activeGuide={activeGuide} />
+    </aside>
+  );
+}
+
+function GuideContent({ question, activeGuide }) {
+  if (activeGuide === 'reading') {
+    return (
+      <div className="conceptBox">
+        <h3>역사 읽기</h3>
+        <p>{question.source}</p>
+        <h3>자료 읽는 법</h3>
+        <ol>
+          {question.lesson.reading.map((item) => (
+            <li key={item}>{item}</li>
+          ))}
+        </ol>
+        <h3>예시 적용</h3>
+        <p>
+          <strong>{question.lesson.example.prompt}</strong>
+        </p>
+        <p>{question.lesson.example.answer}</p>
+      </div>
+    );
+  }
+
+  if (activeGuide === 'timeline') {
+    return (
+      <div className="conceptBox">
+        <h3>연표 힌트</h3>
+        <ul>
+          {question.lesson.context.map((item) => (
+            <li key={item}>{item}</li>
+          ))}
+        </ul>
+        <h3>풀이 순서</h3>
+        <ol>
+          {question.steps.map((step) => (
+            <li key={step}>{step}</li>
+          ))}
+        </ol>
+      </div>
+    );
+  }
+
+  if (activeGuide === 'eliminate') {
+    return (
+      <div className="conceptBox">
+        <h3>오답 소거</h3>
+        <ul>
+          {question.mistakes.map((mistake) => (
+            <li key={mistake}>{mistake}</li>
+          ))}
+        </ul>
+        <h3>선택지 확인</h3>
+        <ol>
+          {question.choices.map((choice, index) => (
+            <li key={choice}>
+              {index === question.answerIndex ? '남길 선택지: ' : '지울 선택지: '}
+              {choice}
+            </li>
+          ))}
+        </ol>
+      </div>
+    );
+  }
+
+  return (
+    <div className="conceptBox">
+      <h3>개념 설명</h3>
+      <p>{question.lesson.summary}</p>
+      <h3>용어</h3>
+      <dl className="termList">
+        {question.lesson.terms.map((term) => (
+          <div key={term.name}>
+            <dt>{term.name}</dt>
+            <dd>{term.body}</dd>
+          </div>
+        ))}
+      </dl>
+      <h3>암기 포인트</h3>
+      <ul>
+        {question.lesson.memory.map((item) => (
+          <li key={item}>{item}</li>
+        ))}
+      </ul>
+      <h3>핵심 개념 요약</h3>
+      <ul>
+        {question.concepts.map((concept) => (
+          <li key={concept}>{concept}</li>
+        ))}
+      </ul>
+      <h3>해설</h3>
+      <p>{question.explanation}</p>
+    </div>
+  );
+}
+
+function Stat({ icon: Icon, label, value }) {
+  return (
+    <div className="stat">
+      <Icon size={18} />
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+createRoot(document.getElementById('root')).render(<App />);
