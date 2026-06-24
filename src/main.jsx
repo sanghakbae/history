@@ -33,7 +33,7 @@ import { grades, totalQuestionCount } from './data/curriculum';
 import './styles.css';
 
 const leaderboard = [];
-const xpPenaltyGuideKeys = new Set(['timeline', 'eliminate']);
+const xpPenaltyGuideKeys = new Set(['reading', 'timeline', 'eliminate']);
 
 function calculateAwardedXp(question, usedGuides = []) {
   const penaltyCount = usedGuides.filter((key) => xpPenaltyGuideKeys.has(key)).length;
@@ -54,6 +54,7 @@ function App() {
   const [selectedQuestionIndex, setSelectedQuestionIndex] = useState(0);
   const [solvedQuestionIds, setSolvedQuestionIds] = useState(() => new Set());
   const [usedGuidesByQuestion, setUsedGuidesByQuestion] = useState({});
+  const [isSkillTreeCollapsed, setIsSkillTreeCollapsed] = useState(false);
   const [approvedChild, setApprovedChild] = useState(() => localStorage.getItem('historyApprovedChild') || '');
 
   useEffect(() => {
@@ -450,6 +451,8 @@ function App() {
           selectedUnit={selectedUnit}
           getSolvedCount={getSolvedCount}
           isUnitUnlockedById={isUnitUnlockedById}
+          isCollapsed={isSkillTreeCollapsed}
+          onToggleCollapsed={() => setIsSkillTreeCollapsed((current) => !current)}
           onSelectGrade={handleSelectGrade}
         />
         <RankingPanel user={user} earnedXp={earnedXp} currentRank={currentRank} />
@@ -957,14 +960,25 @@ function ProblemManager() {
   );
 }
 
-function SkillTree({ selectedGrade, selectedUnit, getSolvedCount, isUnitUnlockedById, onSelectGrade }) {
+function SkillTree({
+  selectedGrade,
+  selectedUnit,
+  getSolvedCount,
+  isUnitUnlockedById,
+  isCollapsed,
+  onToggleCollapsed,
+  onSelectGrade,
+}) {
   return (
-    <section className="arenaPanel skillTreePanel">
+    <section className={isCollapsed ? 'arenaPanel skillTreePanel collapsed' : 'arenaPanel skillTreePanel'}>
       <div className="sectionTitle compact">
         <BookOpenCheck size={18} />
         <h2>스킬 트리</h2>
+        <button className="panelToggle" type="button" onClick={onToggleCollapsed}>
+          {isCollapsed ? '펼치기' : '접기'}
+        </button>
       </div>
-      <div className="skillColumns">
+      {!isCollapsed && <div className="skillColumns">
         {grades.map((grade) => (
           <div className="skillColumn" key={grade.id} style={{ '--accent': grade.color }}>
             <button
@@ -997,7 +1011,7 @@ function SkillTree({ selectedGrade, selectedUnit, getSolvedCount, isUnitUnlocked
             </div>
           </div>
         ))}
-      </div>
+      </div>}
     </section>
   );
 }
@@ -1139,7 +1153,6 @@ function ChallengePanel({
           <div className="problemMeta">
             <span>{'★'.repeat(question.difficulty ?? selectedUnit.difficulty)}{'☆'.repeat(5 - (question.difficulty ?? selectedUnit.difficulty))}</span>
             <b>{penaltyCount > 0 ? `+${awardedXp} XP (${penaltyCount * 5}% 차감)` : `+${question.xp} XP`}</b>
-            <button>개념 학습</button>
           </div>
           <h3>{question.stem}</h3>
           {question.source && (
@@ -1213,7 +1226,7 @@ function TutorPanel({ question, onUseGuide }) {
   }, [question.id]);
 
   const guideButtons = [
-    { key: 'reading', label: '역사 읽기' },
+    { key: 'reading', label: '역사 읽기', meta: 'XP -5%' },
     { key: 'timeline', label: '연표 힌트', meta: 'XP -5%' },
     { key: 'eliminate', label: '오답 소거', meta: 'XP -5%' },
     { key: 'concept', label: '개념 학습', meta: '기본 제공' },
@@ -1251,10 +1264,18 @@ function GuideContent({ question, activeGuide }) {
     return (
       <div className="conceptBox">
         <h3>역사 읽기</h3>
-        <p>{question.source}</p>
-        <h3>자료 읽는 법</h3>
+        <p>{question.readingGuide.headline}</p>
+        <h3>자료 핵심</h3>
+        <p>{question.readingGuide.sourceFocus}</p>
+        <h3>확인할 단서</h3>
+        <ul>
+          {question.readingGuide.checkpoints.map((item) => (
+            <li key={item}>{item}</li>
+          ))}
+        </ul>
+        <h3>문제에 적용</h3>
         <ol>
-          {question.lesson.reading.map((item) => (
+          {question.readingGuide.application.map((item) => (
             <li key={item}>{item}</li>
           ))}
         </ol>
@@ -1271,29 +1292,30 @@ function GuideContent({ question, activeGuide }) {
     return (
       <div className="conceptBox">
         <h3>연표 힌트</h3>
-        <p>
-          이 문제는 시대 순서와 배경을 좁히는 도움입니다. 정답을 바로 외우기보다, 단서가 어느 시기에 놓이는지
-          먼저 잡아야 합니다.
-        </p>
-        <ul>
-          {question.lesson.context.map((item) => (
-            <li key={item}>{item}</li>
-          ))}
-        </ul>
-        <h3>문제 단서</h3>
-        <ul>
-          {question.concepts.map((concept) => (
-            <li key={concept}>{concept}</li>
-          ))}
-        </ul>
-        <h3>풀이 순서</h3>
+        <p>{question.timelineGuide.anchor}</p>
+        <h3>앞뒤 흐름</h3>
+        <dl className="termList">
+          <div>
+            <dt>이전</dt>
+            <dd>{question.timelineGuide.before}</dd>
+          </div>
+          <div>
+            <dt>현재 단서</dt>
+            <dd>{question.timelineGuide.current}</dd>
+          </div>
+          <div>
+            <dt>이후</dt>
+            <dd>{question.timelineGuide.after}</dd>
+          </div>
+        </dl>
+        <h3>연표 풀이 순서</h3>
         <ol>
-          {question.steps.map((step) => (
+          {question.timelineGuide.steps.map((step) => (
             <li key={step}>{step}</li>
           ))}
         </ol>
-        <h3>마지막 확인</h3>
-        <p>{question.explanation}</p>
+        <h3>주의할 함정</h3>
+        <p>{question.timelineGuide.trap}</p>
       </div>
     );
   }
@@ -1302,26 +1324,22 @@ function GuideContent({ question, activeGuide }) {
     return (
       <div className="conceptBox">
         <h3>오답 소거</h3>
-        <p>
-          선택지를 하나씩 지우는 도움입니다. 정답을 찍기 전에, 시대 범위와 핵심 표현이 맞지 않는 선택지를 먼저
-          제거하세요.
-        </p>
+        <p>선택지를 정답 후보와 제외 후보로 나누는 도움입니다. 단순 힌트가 아니라 왜 지우는지까지 확인합니다.</p>
+        <h3>선택지별 판단</h3>
+        <dl className="termList">
+          {question.eliminateGuide.map((item) => (
+            <div key={`${item.label}-${item.choice}`}>
+              <dt>{item.label}: {item.choice}</dt>
+              <dd>{item.reason}</dd>
+            </div>
+          ))}
+        </dl>
+        <h3>자주 하는 실수</h3>
         <ul>
           {question.mistakes.map((mistake) => (
             <li key={mistake}>{mistake}</li>
           ))}
         </ul>
-        <h3>선택지 확인</h3>
-        <ol>
-          {question.choices.map((choice, index) => (
-            <li key={choice}>
-              {index === question.answerIndex ? '남길 선택지: ' : '지울 선택지: '}
-              {choice}
-            </li>
-          ))}
-        </ol>
-        <h3>정답 판단 기준</h3>
-        <p>{question.explanation}</p>
       </div>
     );
   }

@@ -1632,6 +1632,8 @@ textarea {
   color: color-mix(in srgb, var(--accent) 82%, #ffffff);
   font-size: 12px;
   font-weight: 900;
+  line-height: 1.15;
+  letter-spacing: 0;
   background: color-mix(in srgb, var(--accent) 13%, #111827);
 }
 
@@ -1647,16 +1649,23 @@ textarea {
 }
 
 .skillNode {
-  display: block;
-  padding: 2px 5px;
+  display: grid;
+  align-items: center;
+  padding: 3px 5px;
   text-align: left;
-  white-space: nowrap;
   overflow: hidden;
 }
 
 .skillNode b {
+  display: -webkit-box;
   overflow: hidden;
+  line-height: 1.15;
   text-overflow: ellipsis;
+  white-space: normal;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .skillNode.locked {
@@ -1894,14 +1903,6 @@ textarea {
   color: #21d4a1;
 }
 
-.problemMeta button {
-  margin-left: auto;
-  min-height: 28px;
-  color: #3730a3;
-  background: #eef2ff;
-}
-
-.problemMeta button,
 .helperActions button,
 .answerRow button,
 .problemActions button {
@@ -1912,6 +1913,22 @@ textarea {
   font-size: 13px;
   font-weight: 800;
   background: #f1f5f9;
+}
+
+.panelToggle {
+  margin-left: auto;
+  min-height: 24px;
+  border: 1px solid #d7dee8;
+  border-radius: 6px;
+  padding: 0 8px;
+  color: #111827;
+  background: #f8fafc;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.skillTreePanel.collapsed .sectionTitle {
+  margin-bottom: 0;
 }
 
 .problemCard h3 {
@@ -2326,7 +2343,7 @@ textarea {
   .topChip {
     width: auto;
     min-height: 32px;
-    max-width: 116px;
+    max-width: 96px;
     padding: 0 8px;
     font-size: 11px;
     white-space: nowrap;
@@ -2334,17 +2351,17 @@ textarea {
     text-overflow: ellipsis;
   }
 
-  .topChip:not(.strong) {
-    padding: 0 9px;
-  }
-
+  .arenaActions .topChip.active,
   .questionCountChip {
     display: none;
   }
 
-  .skillColumns,
+  .topChip:not(.strong) {
+    padding: 0 9px;
+  }
+
   .helperActions {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .arenaGrid {
@@ -2352,22 +2369,171 @@ textarea {
     grid-template-areas:
       "skills"
       "study";
+    height: auto;
+    min-height: 0;
+    overflow: visible;
   }
 
   .rankingPanel {
     display: none;
   }
 
-  .challengeHeader,
-  .problemMeta {
-    align-items: stretch;
-    flex-direction: column;
+  .skillTreePanel {
+    padding: 8px;
+    overflow: hidden;
   }
 
-  .rankingPanel .rankRow {
-    grid-template-columns: 32px 1fr;
-    align-items: start;
+  .skillTreePanel .sectionTitle {
+    margin-bottom: 7px;
+  }
+
+  .skillColumns {
+    grid-template-columns: repeat(6, minmax(74px, 1fr));
+    gap: 4px;
+    padding: 7px;
+    overflow-x: auto;
+  }
+
+  .gradeTab,
+  .skillNode {
+    min-height: 24px;
+    border-radius: 4px;
+    font-size: 9px;
+    line-height: 1.1;
+    letter-spacing: 0;
+  }
+
+  .gradeTab {
+    text-align: center;
+  }
+
+  .skillNodes {
+    gap: 3px;
+  }
+
+  .skillNode {
+    padding: 2px 4px;
+  }
+
+  .skillNode b {
+    line-height: 1.08;
+  }
+
+  .studySplit {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .challengePanel,
+  .tutorPanel {
     padding: 10px;
+    overflow: visible;
+  }
+
+  .challengeHeader {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(150px, 42%);
+    align-items: end;
+    gap: 8px;
+  }
+
+  .challengeHeader h2 {
+    font-size: 18px;
+  }
+
+  .challengeHeader select {
+    width: 100%;
+    min-height: 36px;
+    font-size: 12px;
+  }
+
+  .progressHeader {
+    font-size: 11px;
+  }
+
+  .problemPrompt {
+    padding: 10px;
+  }
+
+  .problemMeta {
+    gap: 7px;
+    margin-bottom: 8px;
+    font-size: 11px;
+  }
+
+  .problemCard h3 {
+    font-size: 15px;
+    line-height: 1.38;
+  }
+
+  .sourceBox {
+    margin-top: 8px;
+    padding: 8px 9px;
+  }
+
+  .sourceBox span {
+    font-size: 10px;
+  }
+
+  .sourceBox p,
+  .choiceList li button {
+    font-size: 11px;
+    line-height: 1.35;
+  }
+
+  .choiceList {
+    gap: 5px;
+    margin: 8px 9px 9px;
+  }
+
+  .choiceList li span {
+    flex-basis: 20px;
+    width: 20px;
+    height: 20px;
+    margin: 7px 0 0 8px;
+    font-size: 11px;
+  }
+
+  .choiceList li button {
+    min-height: 34px;
+    padding: 7px 8px 7px 0;
+  }
+
+  .problemAssets {
+    grid-template-columns: 1fr;
+  }
+
+  .problemActions {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .helperActions button {
+    min-height: 26px;
+    padding: 0 7px;
+    font-size: 11px;
+  }
+
+  .panelToggle {
+    min-height: 22px;
+    padding: 0 7px;
+    font-size: 10px;
+  }
+
+  .conceptBox {
+    padding: 10px;
+    font-size: 11px;
+    line-height: 1.45;
+  }
+
+  .conceptBox h3 {
+    font-size: 12px;
+  }
+
+  .conceptBox p,
+  .conceptBox li {
+    font-size: 11px;
+    line-height: 1.45;
   }
 
   .answerRow {
