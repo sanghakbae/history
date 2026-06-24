@@ -2348,7 +2348,14 @@ textarea {
   }
 
   .arenaGrid {
-    grid-template-columns: minmax(0, 1fr) 170px;
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "skills"
+      "study";
+  }
+
+  .rankingPanel {
+    display: none;
   }
 
   .challengeHeader,
