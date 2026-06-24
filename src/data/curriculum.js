@@ -7,7 +7,8 @@ const gradeColors = {
   h3: '#f06595',
 };
 
-const r2PublicUrl = (import.meta.env?.VITE_CLOUDFLARE_R2_PUBLIC_URL || '').replace(/\/$/, '');
+const runtimeEnv = import.meta.env || (typeof process !== 'undefined' ? process.env : {});
+const r2PublicUrl = (runtimeEnv.VITE_CLOUDFLARE_R2_PUBLIC_URL || '').replace(/\/$/, '');
 
 const assetCatalog = {
   seed: [{ file: 'comb-pattern-pottery.webp', label: '빗살무늬 토기와 신석기 생활' }],
@@ -35,7 +36,7 @@ const assetCatalog = {
   examancient: [{ file: 'exam-ancient-artifacts.webp', label: '선사~고대 빈출 유물' }],
   exammodern: [{ file: 'exam-modern-timeline.webp', label: '근대 개혁 연표' }],
   exammodernkorea: [{ file: 'exam-modern-korea-timeline.webp', label: '현대사 핵심 연표' }],
-  historicalthinking: [{ file: 'history-source-reading.webp', label: '역사 자료 읽기 절차' }],
+  historicalthinking: [{ file: 'history-record-source.webp', label: '조선왕조실록 기록 자료' }],
   oldmap: [{ file: 'ancient-map-reading.webp', label: '고대 국가 위치와 교류 지도' }],
   goryeosociety: [{ file: 'goryeo-society-culture.webp', label: '고려 사회와 문화 자료' }],
   joseonsystem: [{ file: 'joseon-government-system.webp', label: '조선 통치 체제 자료' }],
@@ -162,7 +163,7 @@ const rawCurriculum = [
 const questionBlueprints = [
   {
     stem: (title) => `${title} 단원의 핵심 흐름을 바르게 설명한 것은?`,
-    answer: (_grade, title, concept) => `${title}은(는) ${concept}`,
+    answer: (_grade, title, concept) => `${withJosa(title, '은', '는')} ${concept}`,
     distractors: [
       '단원 이름만 외우면 시대 배경과 원인·결과는 확인하지 않아도 된다.',
       '인물 이름이 나오면 자료의 시기와 관점을 보지 않고 곧바로 정답으로 판단한다.',
@@ -170,7 +171,7 @@ const questionBlueprints = [
     ],
   },
   {
-    stem: (title) => `${title}와 관련된 자료를 읽을 때 가장 먼저 확인할 기준은?`,
+    stem: (title) => `${withJosa(title, '과', '와')} 관련된 자료를 읽을 때 가장 먼저 확인할 기준은?`,
     answer: (_grade, title) => `${title} 자료의 시기, 만든 주체, 관점을 먼저 확인한다.`,
     distractors: [
       '자료의 제목만 보고 시대와 관점을 모두 판단한다.',
@@ -179,8 +180,8 @@ const questionBlueprints = [
     ],
   },
   {
-    stem: (title) => `${title}을(를) 같은 시대 흐름 속에서 이해한 설명으로 옳은 것은?`,
-    answer: (grade, title) => `${title}은(는) ${grade.era} 흐름 안에서 앞뒤 사건과 함께 판단한다.`,
+    stem: (title) => `${withJosa(title, '을', '를')} 같은 시대 흐름 속에서 이해한 설명으로 옳은 것은?`,
+    answer: (grade, title) => `${withJosa(title, '은', '는')} ${grade.era} 흐름 안에서 앞뒤 사건과 함께 판단한다.`,
     distractors: [
       '한국사와 세계사 흐름은 서로 관련 없이 따로 외운다.',
       '같은 단어가 나오면 모든 시대에서 같은 의미로 해석한다.',
@@ -197,7 +198,7 @@ const questionBlueprints = [
     ],
   },
   {
-    stem: (title) => `${title}와(과) 다른 시대의 내용을 구분한 설명으로 옳은 것은?`,
+    stem: (title) => `${withJosa(title, '과', '와')} 다른 시대의 내용을 구분한 설명으로 옳은 것은?`,
     answer: (_grade, title) => `${title}의 특징과 맞지 않는 시대착오 표현을 먼저 지운다.`,
     distractors: [
       '선택지에 익숙한 단어가 있으면 시대가 달라도 정답이다.',
@@ -233,7 +234,7 @@ const questionBlueprints = [
     ],
   },
   {
-    stem: (title) => `${title}와 관련된 지도·사진 자료를 볼 때 적절한 판단은?`,
+    stem: (title) => `${withJosa(title, '과', '와')} 관련된 지도·사진 자료를 볼 때 적절한 판단은?`,
     answer: (_grade, title) => `${title} 자료의 위치, 이동 방향, 유물 특징을 단원 개념과 연결한다.`,
     distractors: [
       '사진 자료는 설명문보다 중요하지 않으므로 건너뛴다.',
@@ -323,26 +324,36 @@ function getQuestionCount(gradeId, unitIndex) {
 function buildQuestion(grade, title, concept, slug, index, questionIndex) {
   const blueprint = questionBlueprints[questionIndex % questionBlueprints.length];
   const number = questionIndex + 1;
-  const answer = blueprint.answer(grade, title, concept);
+  const assets = buildAssets(grade.id, slug, questionIndex);
+  const asset = assets[0];
+  const assetPhrase = asset ? formatAssetPhrase(asset.label) : null;
+  const assetFocus = getAssetQuestionFocus(questionIndex);
+  const answer = asset
+    ? `${assetPhrase.subject}에서 ${assetFocus.answerPoint} 확인하면 ${title} 단원의 흐름인 '${concept}'와 연결해 해석할 수 있다.`
+    : blueprint.answer(grade, title, concept);
   const distractors = blueprint.distractors;
   const answerIndex = (questionIndex + index) % 4;
   const choices = [...distractors];
   choices.splice(answerIndex, 0, answer);
   const difficulty = Math.min(5, 1 + Math.floor((index + questionIndex) / 4));
-  const source = buildQuestionSource(grade, title, concept, questionIndex);
+  const source = buildQuestionSource(grade, title, concept, questionIndex, asset, assetPhrase);
 
   return {
     id: `q-${grade.id}-${slug}-${String(number).padStart(2, '0')}`,
     title: `${title} ${number}`,
-    type: ['자료 해석', '개념 적용', '연표 판단', '비교 분석', '실전 적용'][questionIndex % 5],
+    type: asset ? '자료 해석' : ['자료 해석', '개념 적용', '연표 판단', '비교 분석', '실전 적용'][questionIndex % 5],
     difficulty,
     xp: xpByDifficulty[difficulty],
-    stem: blueprint.stem(title),
+    stem: asset
+      ? `아래 ${assetPhrase.object} 보고, ${assetFocus.prompt} 옳은 것은?`
+      : blueprint.stem(title),
     source,
-    assets: buildAssets(grade.id, slug, questionIndex),
+    assets,
     choices,
     answerIndex,
-    explanation: `${grade.label} ${grade.course} 교과서 흐름에서 '${title}'은(는) ${concept} 이 점을 자료 단서, 배경, 결과 순서로 정리해야 한다.`,
+    explanation: asset
+      ? `${assetPhrase.subject}는 ${grade.label} ${grade.course}의 '${title}' 단원과 연결됩니다. ${assetFocus.reviewPoint} ${concept} 이 점을 자료의 형태, 시대 단서, 배경 순서로 확인해야 합니다.`
+      : `${grade.label} ${grade.course} 교과서 흐름에서 ${withJosa(title, '은', '는')} ${concept} 이 점을 자료 단서, 배경, 결과 순서로 정리해야 한다.`,
     concepts: [
       `${title}: ${concept}`,
       `범위: ${grade.era}`,
@@ -379,6 +390,72 @@ function buildMistakes(title, questionIndex) {
     [`${title}의 핵심 단서 하나만 보고 전체 시대를 단정함`, '한국사와 세계사 맥락을 분리해서 읽음', '문제의 질문이 개념인지 연표인지 비교인지 확인하지 않음'],
   ];
   return mistakeSets[questionIndex % mistakeSets.length];
+}
+
+function getAssetQuestionFocus(questionIndex) {
+  const focuses = [
+    {
+      prompt: '자료의 시기와 단원 흐름을 연결한 설명으로',
+      answerPoint: '만들어진 시기와 시대 범위를 함께',
+      reviewPoint: '먼저 자료가 어느 시기에 만들어졌는지 확인해야 합니다.',
+    },
+    {
+      prompt: '자료에 보이는 대상의 쓰임을 단원 개념과 연결한 설명으로',
+      answerPoint: '자료의 쓰임과 기능을',
+      reviewPoint: '자료가 실제로 어떤 용도로 쓰였는지 살펴야 합니다.',
+    },
+    {
+      prompt: '자료가 보여 주는 사회 변화나 배경을 바르게 읽은 설명으로',
+      answerPoint: '사회 변화와 배경을',
+      reviewPoint: '자료가 등장한 배경과 그 뒤의 변화를 함께 보아야 합니다.',
+    },
+    {
+      prompt: '자료 속 위치·형태·표현을 근거로 판단한 설명으로',
+      answerPoint: '위치·형태·표현 같은 눈에 보이는 단서를',
+      reviewPoint: '사진이나 지도에 보이는 형태와 위치 단서가 판단의 근거입니다.',
+    },
+    {
+      prompt: '자료를 만든 주체나 관점을 고려한 설명으로',
+      answerPoint: '만든 주체와 관점을',
+      reviewPoint: '누가 어떤 관점에서 남긴 자료인지 확인해야 합니다.',
+    },
+    {
+      prompt: '자료와 선택지를 대조하는 방법으로',
+      answerPoint: '자료 단서와 선택지의 시대·제도·사건을 대조해',
+      reviewPoint: '자료의 단서와 선택지의 표현이 같은 시대에 놓이는지 대조해야 합니다.',
+    },
+    {
+      prompt: '자료를 연표 흐름 속에 놓고 판단한 설명으로',
+      answerPoint: '앞뒤 사건과의 순서를',
+      reviewPoint: '자료가 어느 사건 앞뒤에 놓이는지 연표로 좁혀야 합니다.',
+    },
+    {
+      prompt: '자료를 다른 시대의 내용과 구분한 설명으로',
+      answerPoint: '다른 시대와 섞이지 않는 핵심 단서를',
+      reviewPoint: '비슷해 보이는 다른 시대의 제도나 사건과 구분해야 합니다.',
+    },
+    {
+      prompt: '자료가 시험 선택지에서 단서가 되는 이유로',
+      answerPoint: '시험 선택지에서 단서가 되는 용어와 이미지를',
+      reviewPoint: '자료에 직접 드러난 용어와 시각 단서를 정답 근거로 삼아야 합니다.',
+    },
+    {
+      prompt: '자료를 보고 먼저 지워야 할 오답 기준으로',
+      answerPoint: '자료와 맞지 않는 시대착오 표현을',
+      reviewPoint: '자료와 시대가 맞지 않는 인물·제도·사건은 먼저 제외해야 합니다.',
+    },
+    {
+      prompt: '자료가 단원 핵심 개념을 보여 주는 방식으로',
+      answerPoint: '단원 핵심 개념을 보여 주는 부분을',
+      reviewPoint: '자료가 단원 핵심 개념을 어떻게 보여 주는지 한 문장으로 정리해야 합니다.',
+    },
+    {
+      prompt: '자료 해석 후 학습 노트에 정리할 내용으로',
+      answerPoint: '시기, 핵심 단서, 단원 개념을 묶어',
+      reviewPoint: '자료를 본 뒤에는 시기, 단서, 개념을 함께 정리해야 합니다.',
+    },
+  ];
+  return focuses[questionIndex % focuses.length];
 }
 
 function buildReadingGuide(grade, title, concept, source, questionIndex) {
@@ -447,7 +524,11 @@ function buildEliminateGuide(title, choices, answerIndex) {
   });
 }
 
-function buildQuestionSource(grade, title, concept, questionIndex) {
+function buildQuestionSource(grade, title, concept, questionIndex, asset, assetPhrase) {
+  if (asset) {
+    return `[이미지 자료] ${assetPhrase.subject}가 제시되어 있다. 사진·지도·기록의 형태와 보이는 단서를 ${title}의 핵심 개념과 연결한다.\n핵심: ${concept}\n범위: ${grade.era}`;
+  }
+
   const frames = [
     `[교과서 자료] ${concept}`,
     `[연표 자료] ${title} 전후의 사건 순서를 묻고 있다. 먼저 기준 사건을 찾은 뒤 앞뒤 흐름을 비교한다.`,
@@ -457,6 +538,26 @@ function buildQuestionSource(grade, title, concept, questionIndex) {
   ];
   const frame = frames[questionIndex % frames.length];
   return `${frame}\n범위: ${grade.era}`;
+}
+
+function formatAssetPhrase(label) {
+  const subject = label.endsWith('자료') ? label : `${label} 자료`;
+  return {
+    subject,
+    object: withJosa(subject, '을', '를'),
+  };
+}
+
+function withJosa(value, withBatchim, withoutBatchim) {
+  return `${value}${hasBatchim(value) ? withBatchim : withoutBatchim}`;
+}
+
+function hasBatchim(value) {
+  const char = [...String(value).trim()].pop();
+  if (!char) return false;
+  const code = char.charCodeAt(0);
+  if (code < 0xac00 || code > 0xd7a3) return false;
+  return (code - 0xac00) % 28 !== 0;
 }
 
 function buildAssets(gradeId, slug, questionIndex) {
@@ -527,7 +628,7 @@ function buildLesson(grade, title, concept, index) {
       '선택지는 맞는 말처럼 보여도 시대가 다르면 오답이므로, 시대 일치 여부를 먼저 확인합니다.',
     ],
     example: {
-      prompt: `${title}와 관련된 자료에서 '${concept}'라는 설명이 보인다면 무엇을 먼저 판단해야 할까?`,
+      prompt: `${withJosa(title, '과', '와')} 관련된 자료에서 '${concept}'라는 설명이 보인다면 무엇을 먼저 판단해야 할까?`,
       answer: `먼저 이 설명이 어느 시대 변화와 연결되는지 확인합니다. 그다음 원인, 전개, 결과 중 무엇을 묻는지 나누고, 선택지에서 ${title}의 특징과 맞지 않는 시대착오 표현을 지웁니다.`,
     },
     memory: [

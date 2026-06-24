@@ -10,6 +10,17 @@ for (const { grade, unit } of units) {
   const answers = new Set(unit.questions.map((question) => question.choices[question.answerIndex]));
   const minimumUnique = Math.min(unit.questions.length, 8);
   const imageCount = unit.questions.filter((question) => question.assets.length > 0).length;
+  const badImageQuestions = unit.questions.filter((question) => {
+    if (question.assets.length === 0) return false;
+    const label = question.assets[0].label;
+    const answer = question.choices[question.answerIndex] || '';
+    return (
+      !question.stem.includes(label) ||
+      !question.source.includes(label) ||
+      !answer.includes(label) ||
+      question.type !== '자료 해석'
+    );
+  });
 
   if (stems.size < minimumUnique) {
     duplicateReports.push(`${grade.label} ${unit.title}: question stems ${stems.size}/${unit.questions.length}`);
@@ -20,6 +31,9 @@ for (const { grade, unit } of units) {
   if (imageCount > 0) {
     unitsWithImages += 1;
     imageQuestionCount += imageCount;
+  }
+  if (badImageQuestions.length > 0) {
+    duplicateReports.push(`${grade.label} ${unit.title}: image-question alignment ${badImageQuestions.length}`);
   }
 }
 
