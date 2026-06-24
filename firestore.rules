@@ -10,6 +10,14 @@ service cloud.firestore {
       return signedIn() && request.auth.uid == uid;
     }
 
+    function currentUser() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function hasRole(role) {
+      return signedIn() && currentUser().data.role == role;
+    }
+
     match /users/{uid} {
       allow read: if owns(uid);
       allow create, update: if owns(uid);
@@ -17,7 +25,7 @@ service cloud.firestore {
     }
 
     match /studentDirectory/{uid} {
-      allow read: if signedIn();
+      allow read: if owns(uid) || hasRole('parent') || hasRole('admin');
       allow create, update: if owns(uid) && request.resource.data.uid == request.auth.uid;
       allow delete: if false;
     }
