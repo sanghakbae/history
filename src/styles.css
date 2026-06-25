@@ -741,7 +741,7 @@ textarea {
 
 .loginPanel,
 .approvalCard {
-  width: min(92vw, 520px);
+  width: min(100%, 520px);
   display: grid;
   justify-items: center;
   gap: 14px;
@@ -772,6 +772,16 @@ textarea {
   text-overflow: ellipsis;
 }
 
+@media (max-width: 720px) {
+  .loginPanel h1,
+  .approvalCard h1 {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    line-height: 1.1;
+  }
+}
+
 .loginPanel p,
 .approvalCard p {
   margin: 0;
@@ -800,12 +810,12 @@ textarea {
 }
 
 .loginRoleGrid button {
-  min-height: 108px;
+  min-height: 88px;
   display: grid;
   align-content: center;
   justify-items: start;
-  gap: 7px;
-  padding: 16px;
+  gap: 6px;
+  padding: 12px 10px;
   border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 5px;
   color: #ffffff;
@@ -829,6 +839,7 @@ textarea {
   color: #cbd5e1;
   font-size: 0.8rem;
   line-height: 1.4;
+  white-space: nowrap;
 }
 
 .googleLoginButton,
@@ -933,14 +944,15 @@ textarea {
 
 .memberTable {
   width: 100%;
-  min-width: 1180px;
+  min-width: 0;
+  table-layout: auto;
   border-collapse: collapse;
   font-size: 12px;
 }
 
 .memberTable th,
 .memberTable td {
-  padding: 9px 10px;
+  padding: 8px 6px;
   border-bottom: 1px solid #e2e8f0;
   text-align: center;
   vertical-align: middle;
@@ -981,11 +993,7 @@ textarea {
 }
 
 .memberTable select {
-  min-width: 150px;
-}
-
-.memberTable td:last-child select {
-  min-width: 260px;
+  min-width: 0;
 }
 
 .resetButton {
@@ -1056,8 +1064,13 @@ textarea {
 }
 
 .statSummaryGrid .stat strong {
+  color: #0f172a;
   font-size: 24px;
   justify-self: end;
+}
+
+.statSummaryGrid .stat span {
+  color: #64748b;
 }
 
 .statsGrid {
@@ -1320,7 +1333,12 @@ textarea {
 
 .parentMain {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
+  min-width: 0;
+}
+
+.parentMain .arenaPanel {
   min-width: 0;
 }
 
@@ -1494,6 +1512,7 @@ textarea {
 
 .activityTableWrap {
   max-height: 260px;
+  min-width: 0;
   overflow: auto;
   border: 1px solid #dbe2ea;
   border-radius: 5px;
@@ -1838,6 +1857,92 @@ textarea {
   border-radius: 6px;
   padding: 0 12px;
   background: #ffffff;
+}
+
+.unitSelect {
+  position: relative;
+  min-width: 200px;
+}
+
+.unitSelectTrigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-height: 38px;
+  padding: 0 12px;
+  border: 1px solid #d7dee8;
+  border-radius: 6px;
+  color: #111827;
+  font-size: 12px;
+  text-align: left;
+  background: #ffffff;
+  cursor: pointer;
+}
+
+.unitSelectTrigger span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.unitSelectTrigger svg {
+  flex: 0 0 auto;
+  color: #64748b;
+  transition: transform 0.15s ease;
+}
+
+.unitSelect.open .unitSelectTrigger {
+  border-color: #f59e0b;
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.18);
+}
+
+.unitSelect.open .unitSelectTrigger svg {
+  transform: rotate(180deg);
+}
+
+.unitSelectMenu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 30;
+  max-height: 280px;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  overflow-y: auto;
+  border: 1px solid #d7dee8;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 18px 44px rgba(15, 23, 42, 0.18);
+}
+
+.unitSelectMenu li {
+  margin: 0;
+}
+
+.unitSelectMenu button {
+  width: 100%;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 6px;
+  color: #1f2937;
+  font-size: 12px;
+  text-align: left;
+  background: transparent;
+  cursor: pointer;
+}
+
+.unitSelectMenu button:hover {
+  background: #f1f5f9;
+}
+
+.unitSelectMenu button.active {
+  color: #047857;
+  font-weight: 700;
+  background: #ecfdf5;
 }
 
 .progressLine {
@@ -2232,16 +2337,20 @@ textarea {
 
 .conceptBox p,
 .conceptBox li {
-  margin: 0 0 14px;
+  margin: 0 0 10px;
   color: #475569;
   font-size: 12px;
-  line-height: 1.55;
+  line-height: 1.35;
+}
+
+.conceptBox li {
+  margin-bottom: 5px;
 }
 
 .conceptBox ul,
 .conceptBox ol {
   padding-left: 18px;
-  margin: 0 0 12px;
+  margin: 0 0 8px;
 }
 
 .termList {
@@ -2268,7 +2377,7 @@ textarea {
   margin: 0;
   color: #475569;
   font-size: 12px;
-  line-height: 1.5;
+  line-height: 1.35;
 }
 
 .parentMode {
@@ -2276,11 +2385,59 @@ textarea {
 }
 
 @media (max-width: 1050px) {
+  .arenaShell {
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
+  }
+
+  .arenaTopbar {
+    flex-wrap: nowrap;
+    min-height: 60px;
+  }
+
+  .arenaBrand {
+    flex: 1 1 auto;
+  }
+
+  .arenaBrand strong {
+    font-size: 15px;
+  }
+
+  .arenaBrand small {
+    font-size: 11px;
+    white-space: nowrap;
+  }
+
+  .arenaActions {
+    flex: 0 0 auto;
+    flex-wrap: nowrap;
+    gap: 6px;
+  }
+
+  .topChip {
+    min-height: 32px;
+    padding: 0 9px;
+    gap: 5px;
+    font-size: 12px;
+  }
+
   .arenaGrid {
-    grid-template-columns: minmax(0, 1fr) 280px;
+    grid-template-columns: 1fr;
     grid-template-areas:
-      "skills ranking"
-      "study study";
+      "skills"
+      "ranking"
+      "study";
+    height: auto;
+  }
+
+  .sectionTitle h2,
+  .sectionTitle.compact h2 {
+    font-size: 15px;
+  }
+
+  .challengeHeader h2 {
+    font-size: 17px;
   }
 
   .studySplit {
@@ -2294,17 +2451,34 @@ textarea {
   }
 
   .skillColumns {
-    grid-template-columns: repeat(3, minmax(150px, 1fr));
-    overflow: auto;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    overflow-x: hidden;
   }
 
   .parentDashboard {
     grid-template-columns: 1fr;
   }
+
+  .activityTable {
+    min-width: 0;
+    table-layout: fixed;
+  }
+
+  .activityTable th,
+  .activityTable td {
+    padding: 7px 6px;
+    font-size: 11px;
+    white-space: normal;
+    word-break: keep-all;
+    overflow-wrap: anywhere;
+  }
 }
 
 @media (max-width: 720px) {
   .arenaShell {
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
     padding: 8px;
   }
 
@@ -2317,10 +2491,13 @@ textarea {
 
   .arenaBrand {
     flex: 1 1 auto;
+    min-width: 0;
+    gap: 6px;
   }
 
   .arenaBrand strong {
-    font-size: 13px;
+    font-size: 11px;
+    white-space: nowrap;
   }
 
   .arenaBrand small {
@@ -2328,24 +2505,25 @@ textarea {
   }
 
   .brandMark {
-    width: 34px;
-    height: 34px;
+    flex: 0 0 auto;
+    width: 30px;
+    height: 30px;
   }
 
   .arenaActions {
     flex: 0 0 auto;
     width: auto;
     margin-left: auto;
-    gap: 4px;
+    gap: 3px;
     flex-wrap: nowrap;
   }
 
   .topChip {
     width: auto;
-    min-height: 32px;
-    max-width: 96px;
-    padding: 0 8px;
-    font-size: 11px;
+    min-height: 26px;
+    max-width: 76px;
+    padding: 3px 5px;
+    font-size: 9px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -2357,7 +2535,7 @@ textarea {
   }
 
   .topChip:not(.strong) {
-    padding: 0 9px;
+    padding: 3px 5px;
   }
 
   .helperActions {
@@ -2387,20 +2565,25 @@ textarea {
     margin-bottom: 7px;
   }
 
+  .skillTreePanel .sectionTitle h2 {
+    font-size: 14px;
+  }
+
   .skillColumns {
-    grid-template-columns: repeat(6, minmax(74px, 1fr));
-    gap: 4px;
-    padding: 7px;
-    overflow-x: auto;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 3px;
+    padding: 6px;
+    overflow-x: hidden;
   }
 
   .gradeTab,
   .skillNode {
     min-height: 24px;
     border-radius: 4px;
-    font-size: 9px;
+    font-size: 8px;
     line-height: 1.1;
-    letter-spacing: 0;
+    letter-spacing: -0.2px;
+    word-break: keep-all;
   }
 
   .gradeTab {
@@ -2439,12 +2622,25 @@ textarea {
   }
 
   .challengeHeader h2 {
-    font-size: 18px;
+    font-size: 14px;
   }
 
   .challengeHeader select {
     width: 100%;
     min-height: 36px;
+    font-size: 12px;
+  }
+
+  .unitSelect {
+    min-width: 0;
+  }
+
+  .unitSelectTrigger {
+    min-height: 36px;
+    font-size: 12px;
+  }
+
+  .unitSelectMenu button {
     font-size: 12px;
   }
 
@@ -2532,8 +2728,33 @@ textarea {
 
   .conceptBox p,
   .conceptBox li {
+    margin-bottom: 6px;
     font-size: 11px;
-    line-height: 1.45;
+    line-height: 1.3;
+  }
+
+  .conceptBox li {
+    margin-bottom: 4px;
+  }
+
+  .conceptBox ul,
+  .conceptBox ol,
+  .termList {
+    margin-bottom: 8px;
+  }
+
+  .tutorPanel .sectionTitle h2 {
+    font-size: 16px;
+  }
+
+  .tutorPanel .conceptBox {
+    margin-bottom: 0;
+  }
+
+  .conceptBox > *:last-child,
+  .conceptBox ul:last-child li:last-child,
+  .conceptBox ol:last-child li:last-child {
+    margin-bottom: 0;
   }
 
   .answerRow {

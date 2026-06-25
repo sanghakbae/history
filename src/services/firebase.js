@@ -125,3 +125,17 @@ export async function getStudentApproval(uid) {
   const snapshot = await getDoc(doc(db, 'studentApprovals', uid));
   return snapshot.exists() ? { id: snapshot.id, ...snapshot.data() } : null;
 }
+
+export async function listAllUsers() {
+  if (!db) return [];
+  const snapshot = await getDocs(collection(db, 'users'));
+  return snapshot.docs
+    .map((item) => ({ id: item.id, ...item.data() }))
+    .sort((a, b) => (a.displayName || a.email || '').localeCompare(b.displayName || b.email || ''));
+}
+
+export async function listStudentApprovals() {
+  if (!db) return [];
+  const snapshot = await getDocs(collection(db, 'studentApprovals'));
+  return snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
+}

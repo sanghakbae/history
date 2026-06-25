@@ -19,7 +19,7 @@ service cloud.firestore {
     }
 
     match /users/{uid} {
-      allow read: if owns(uid);
+      allow read: if owns(uid) || hasRole('admin');
       allow create, update: if owns(uid);
       allow delete: if false;
     }

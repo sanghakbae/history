@@ -1,7 +1,8 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   BookOpenCheck,
+  ChevronDown,
   CircleCheck,
   Flame,
   GraduationCap,
@@ -21,6 +22,8 @@ import {
   isFirebaseConfigured,
   approveStudentForParent,
   getStudentApproval,
+  listAllUsers,
+  listStudentApprovals,
   listStudentUsers,
   listStudyLogs,
   signInWithGoogle,
@@ -402,15 +405,6 @@ function App() {
     );
   }
 
-  if (!approvedChild) {
-    return (
-      <PendingApprovalScreen
-        user={user}
-        notice={notice}
-        onSignOut={signOutUser}
-      />
-    );
-  }
 
   return (
     <main className="arenaShell">
@@ -511,7 +505,7 @@ function LoginScreen({ isManager, authReady, notice, onGoogleSignIn }) {
               >
                 <GraduationCap size={18} />
                 <strong>학생</strong>
-                <span>학부모 승인 후 문제 풀이</span>
+                <span>승인 후 문제 풀이</span>
               </button>
             <button
               type="button"
@@ -520,7 +514,7 @@ function LoginScreen({ isManager, authReady, notice, onGoogleSignIn }) {
             >
               <Users size={18} />
               <strong>학부모</strong>
-              <span>자녀 학습 현황 확인</span>
+              <span>자녀 학습 현황</span>
             </button>
             </div>
           )}
@@ -532,32 +526,6 @@ function LoginScreen({ isManager, authReady, notice, onGoogleSignIn }) {
           )}
           {notice && <strong className="loginNotice">{notice}</strong>}
         </div>
-      </section>
-    </main>
-  );
-}
-
-function PendingApprovalScreen({ user, notice, onSignOut }) {
-  return (
-    <main className="approvalScreen">
-      <section className="approvalCard">
-        <span className="brandMark loginBrandMark">
-          <History size={30} />
-        </span>
-        <h1>학부모 승인 대기</h1>
-        <p>
-          {user?.displayName || user?.email} 계정으로 로그인되었습니다. 학부모가 자녀를 선택하면 중1 자료와 역사 해석부터
-          학습을 시작할 수 있습니다.
-        </p>
-        <div className="approvalSteps">
-          <span>1. 학생 로그인 완료</span>
-          <span>2. 학부모가 자녀 선택</span>
-          <span>3. 승인 후 문제 풀이 시작</span>
-        </div>
-        <button type="button" onClick={onSignOut}>
-          다른 계정으로 로그인
-        </button>
-        {notice && <strong className="loginNotice">{notice}</strong>}
       </section>
     </main>
   );
@@ -701,9 +669,53 @@ function ParentDashboard({ onApproveChild, approvedChild }) {
   );
 }
 
+const roleLabels = { student: '학생', parent: '학부모', admin: '관리자' };
+
 function ManagerBoard() {
   const [managerTab, setManagerTab] = useState('members');
-  const members = [];
+  const [members, setMembers] = useState([]);
+  const [membersLoading, setMembersLoading] = useState(false);
+  const [membersError, setMembersError] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    setMembersLoading(true);
+    setMembersError('');
+    Promise.all([listAllUsers(), listStudentApprovals()])
+      .then(([users, approvals]) => {
+        if (!active) return;
+        const childrenByParent = approvals.reduce((map, approval) => {
+          if (!approval.parentUid) return map;
+          const list = map[approval.parentUid] || [];
+          list.push(approval.studentName || approval.studentEmail || approval.studentUid);
+          return { ...map, [approval.parentUid]: list };
+        }, {});
+        const rows = users.map((item) => {
+          const role = item.role || 'student';
+          return {
+            id: item.id,
+            type: roleLabels[role] || role,
+            name: item.displayName || '',
+            email: item.email || '',
+            grade: role === 'student' ? item.grade || '중1' : '-',
+            role,
+            child: role === 'parent' ? (childrenByParent[item.id] || []).join(', ') || '-' : '-',
+          };
+        });
+        const order = { student: 0, parent: 1, admin: 2 };
+        rows.sort((a, b) => (order[a.role] ?? 9) - (order[b.role] ?? 9) || a.name.localeCompare(b.name));
+        setMembers(rows);
+      })
+      .catch(() => {
+        if (active) setMembersError('회원 목록을 불러오지 못했습니다. Firestore 권한을 확인하세요.');
+      })
+      .finally(() => {
+        if (active) setMembersLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   return (
     <section className="managerBoard">
@@ -712,10 +724,11 @@ function ManagerBoard() {
         <button className={managerTab === 'stats' ? 'active' : ''} type="button" onClick={() => setManagerTab('stats')}><LineChart size={16} />학습 통계</button>
         <button className={managerTab === 'problems' ? 'active' : ''} type="button" onClick={() => setManagerTab('problems')}><BookOpenCheck size={16} />문제 관리</button>
         <button className={managerTab === 'logs' ? 'active' : ''} type="button" onClick={() => setManagerTab('logs')}><NotebookPen size={16} />감사 로그</button>
-        <button className={managerTab === 'usage' ? 'active' : ''} type="button" onClick={() => setManagerTab('usage')}><Sparkles size={16} />사용량</button>
       </aside>
       <div className="arenaPanel managerPanel managerConsole">
-        {managerTab === 'members' && <MemberManager members={members} />}
+        {managerTab === 'members' && (
+          <MemberManager members={members} loading={membersLoading} error={membersError} />
+        )}
         {managerTab === 'stats' && <LearningStats />}
         {managerTab === 'problems' && <ProblemManager />}
         {managerTab === 'logs' && <AuditLog />}
@@ -725,14 +738,20 @@ function ManagerBoard() {
   );
 }
 
-function MemberManager({ members }) {
+function MemberManager({ members, loading, error }) {
+  const studentCount = members.filter((member) => member.role === 'student').length;
+  const parentCount = members.filter((member) => member.role === 'parent').length;
+
   return (
     <>
       <div className="sectionTitle compact">
         <Users size={18} />
         <h2>회원 관리</h2>
       </div>
-      <p className="managerSubtitle">회원 관리</p>
+      <p className="managerSubtitle">
+        학생 {studentCount}명 · 학부모 {parentCount}명 · 전체 {members.length}명
+      </p>
+      {error && <p className="emptyState errorState">{error}</p>}
       <div className="memberTableWrap">
         <table className="memberTable">
           <thead>
@@ -749,7 +768,7 @@ function MemberManager({ members }) {
           </thead>
           <tbody>
             {members.map((member) => (
-              <tr key={member.email}>
+              <tr key={member.id || member.email}>
                 <td>
                   <strong>{member.type}</strong>
                   <span>{member.email}</span>
@@ -763,23 +782,19 @@ function MemberManager({ members }) {
                   <select defaultValue={member.role}>
                     <option value="student">학생</option>
                     <option value="parent">학부모</option>
-                    <option value="admin">관리자(서비스 운영자)</option>
+                    <option value="admin">관리자</option>
                   </select>
                 </td>
                 <td>
-                  {member.role === 'parent' ? (
-                    <select defaultValue={member.child}>
-                      <option>-</option>
-                    </select>
-                  ) : (
-                    <span>-</span>
-                  )}
+                  <span>{member.role === 'parent' ? member.child : '-'}</span>
                 </td>
               </tr>
             ))}
             {members.length === 0 && (
               <tr>
-                <td colSpan="8">회원 데이터가 없습니다.</td>
+                <td colSpan="8">
+                  {loading ? '회원 목록을 불러오는 중입니다…' : error ? '회원 목록을 불러오지 못했습니다.' : '회원 데이터가 없습니다.'}
+                </td>
               </tr>
             )}
           </tbody>
@@ -1074,6 +1089,62 @@ function RankingPanel({ user, earnedXp, currentRank }) {
   );
 }
 
+function UnitSelect({ units, value, onChange }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  const current = units.find((unit) => unit.id === value) ?? units[0];
+
+  useEffect(() => {
+    if (!open) return undefined;
+    function handleOutside(event) {
+      if (ref.current && !ref.current.contains(event.target)) setOpen(false);
+    }
+    function handleKey(event) {
+      if (event.key === 'Escape') setOpen(false);
+    }
+    document.addEventListener('mousedown', handleOutside);
+    document.addEventListener('keydown', handleKey);
+    return () => {
+      document.removeEventListener('mousedown', handleOutside);
+      document.removeEventListener('keydown', handleKey);
+    };
+  }, [open]);
+
+  return (
+    <div className={`unitSelect${open ? ' open' : ''}`} ref={ref}>
+      <button
+        type="button"
+        className="unitSelectTrigger"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label="문제 선택"
+        onClick={() => setOpen((value) => !value)}
+      >
+        <span>{current.questions[0].title}</span>
+        <ChevronDown size={16} />
+      </button>
+      {open && (
+        <ul className="unitSelectMenu" role="listbox">
+          {units.map((unit) => (
+            <li key={unit.id} role="option" aria-selected={unit.id === value}>
+              <button
+                type="button"
+                className={unit.id === value ? 'active' : ''}
+                onClick={() => {
+                  onChange(unit.id);
+                  setOpen(false);
+                }}
+              >
+                {unit.questions[0].title}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 function ChallengePanel({
   selectedGrade,
   selectedUnit,
@@ -1133,13 +1204,7 @@ function ChallengePanel({
           <p className="eyebrow">{selectedGrade.label} · 한국사</p>
           <h2>{selectedGrade.course}</h2>
         </div>
-        <select value={selectedUnit.id} aria-label="문제 선택" onChange={(event) => onSelectUnit(event.target.value)}>
-          {selectedGrade.units.map((unit) => (
-            <option key={unit.id} value={unit.id}>
-              {unit.questions[0].title}
-            </option>
-          ))}
-        </select>
+        <UnitSelect units={selectedGrade.units} value={selectedUnit.id} onChange={onSelectUnit} />
       </div>
       <div className="progressLine">
         <div className="progressHeader">
