@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   BookOpenCheck,
@@ -23,6 +23,7 @@ import {
   approveStudentForParent,
   getStudentApproval,
   listAllUsers,
+  listApprovedStudents,
   listStudentApprovals,
   listStudentUsers,
   listStudyLogs,
@@ -400,7 +401,7 @@ function App() {
             </button>
           </div>
         </header>
-        <ParentDashboard onApproveChild={handleApproveChild} approvedChild={approvedChild} />
+        <ParentDashboard user={user} onApproveChild={handleApproveChild} approvedChild={approvedChild} />
       </main>
     );
   }
@@ -531,37 +532,110 @@ function LoginScreen({ isManager, authReady, notice, onGoogleSignIn }) {
   );
 }
 
-function ParentDashboard({ onApproveChild, approvedChild }) {
-  const [childQuery, setChildQuery] = useState('');
+const guideLabels = { reading: '역사 읽기', timeline: '연표 힌트', eliminate: '오답 소거', concept: '개념 학습' };
+
+function formatLogDate(value) {
+  if (!value) return '-';
+  const date = typeof value.toDate === 'function' ? value.toDate() : new Date(value);
+  if (Number.isNaN(date.getTime())) return '-';
+  return `${date.getFullYear()}. ${String(date.getMonth() + 1).padStart(2, '0')}. ${String(date.getDate()).padStart(2, '0')}.`;
+}
+
+function ParentDashboard({ user, onApproveChild }) {
+  const [emailQuery, setEmailQuery] = useState('');
+  const [directory, setDirectory] = useState([]);
   const [children, setChildren] = useState([]);
-  const [childrenLoading, setChildrenLoading] = useState(false);
-  const [childrenError, setChildrenError] = useState('');
-  const activities = [];
-  const searched = childQuery.trim().length > 0;
-  const filteredChildren = searched
-    ? children.filter((child) =>
-        `${child.displayName ?? ''} ${child.email ?? ''} ${child.grade ?? ''}`.toLowerCase().includes(childQuery.trim().toLowerCase()),
-      )
-    : [];
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [searchState, setSearchState] = useState({ status: 'idle' });
+  const [registering, setRegistering] = useState(false);
+
+  const loadChildren = useCallback(async () => {
+    if (!user) return;
+    setLoading(true);
+    setError('');
+    try {
+      const approvals = await listApprovedStudents(user.uid);
+      const withStats = await Promise.all(
+        approvals.map(async (approval) => {
+          let logs = [];
+          try {
+            logs = await listStudyLogs(approval.studentUid);
+          } catch {
+            logs = [];
+          }
+          const xp = logs.reduce((sum, log) => sum + (log.points || 0), 0);
+          const solved = new Set(logs.map((log) => log.questionId).filter(Boolean)).size;
+          return { ...approval, xp, solved, logs };
+        }),
+      );
+      withStats.sort((a, b) => (a.studentName || '').localeCompare(b.studentName || ''));
+      setChildren(withStats);
+    } catch {
+      setError('등록된 자녀 정보를 불러오지 못했습니다. Firestore 권한을 확인하세요.');
+    } finally {
+      setLoading(false);
+    }
+  }, [user]);
 
   useEffect(() => {
     let alive = true;
-    setChildrenLoading(true);
-    setChildrenError('');
     listStudentUsers()
       .then((items) => {
-        if (alive) setChildren(items);
+        if (alive) setDirectory(items);
       })
-      .catch(() => {
-        if (alive) setChildrenError('학생 목록을 불러오지 못했습니다. Firestore 권한을 확인하세요.');
-      })
-      .finally(() => {
-        if (alive) setChildrenLoading(false);
-      });
+      .catch(() => {});
     return () => {
       alive = false;
     };
   }, []);
+
+  useEffect(() => {
+    loadChildren();
+  }, [loadChildren]);
+
+  function handleSearch(event) {
+    event.preventDefault();
+    const queryValue = emailQuery.trim().toLowerCase();
+    if (!queryValue) return;
+    if (children.some((child) => (child.studentEmail || '').toLowerCase() === queryValue)) {
+      setSearchState({ status: 'exists' });
+      return;
+    }
+    const found = directory.find((student) => (student.email || '').toLowerCase() === queryValue);
+    setSearchState(found ? { status: 'found', student: found } : { status: 'notfound' });
+  }
+
+  async function handleRegister(student) {
+    setRegistering(true);
+    try {
+      await onApproveChild(student);
+      await loadChildren();
+      setSearchState({ status: 'idle' });
+      setEmailQuery('');
+    } finally {
+      setRegistering(false);
+    }
+  }
+
+  const activityRows = children
+    .flatMap((child) =>
+      (child.logs || []).map((log) => ({
+        sort: log.createdAt?.seconds ?? 0,
+        cells: [
+          child.studentName || child.studentEmail || child.studentUid,
+          formatLogDate(log.createdAt),
+          log.unitTitle || '-',
+          log.questionTitle || '-',
+          '-',
+          '완료',
+          (log.usedGuides || []).map((guide) => guideLabels[guide] || guide).join(', ') || '-',
+        ],
+      })),
+    )
+    .sort((a, b) => b.sort - a.sort)
+    .slice(0, 50)
+    .map((row) => row.cells);
 
   return (
     <section className="parentDashboard">
@@ -571,59 +645,61 @@ function ParentDashboard({ onApproveChild, approvedChild }) {
             <Users size={18} />
             <h2>자녀 학습 현황</h2>
           </div>
-          <input
-            className="managerSearch"
-            value={childQuery}
-            placeholder="자녀 이름 또는 이메일로 검색"
-            onChange={(event) => setChildQuery(event.target.value)}
-          />
+          <form className="parentSearchForm" onSubmit={handleSearch}>
+            <input
+              className="managerSearch"
+              type="email"
+              value={emailQuery}
+              placeholder="자녀의 이메일 주소를 정확히 입력하세요"
+              onChange={(event) => {
+                setEmailQuery(event.target.value);
+                setSearchState({ status: 'idle' });
+              }}
+            />
+            <button type="submit" disabled={!emailQuery.trim()}>검색</button>
+          </form>
+
+          {searchState.status === 'notfound' && (
+            <p className="emptyState">해당 이메일의 학생을 찾을 수 없습니다. 이메일 주소를 정확히 입력했는지 확인하세요.</p>
+          )}
+          {searchState.status === 'exists' && (
+            <p className="emptyState">이미 등록된 자녀입니다.</p>
+          )}
+          {searchState.status === 'found' && (
+            <article className="childCard searchResult">
+              <header>
+                <span className="childAvatar"><Users size={18} /></span>
+                <div>
+                  <strong>{searchState.student.displayName || searchState.student.email}</strong>
+                  <small>{searchState.student.email} · {searchState.student.grade || '학년 미지정'}</small>
+                </div>
+                <button type="button" disabled={registering} onClick={() => handleRegister(searchState.student)}>
+                  {registering ? '등록 중…' : '자녀 등록'}
+                </button>
+              </header>
+            </article>
+          )}
+
           <div className="childCards">
-            {!searched && (
-              <p className="emptyState">자녀 이름 또는 이메일을 검색하면 학생 목록이 표시됩니다.</p>
+            {loading && <p className="emptyState">등록된 자녀 정보를 불러오는 중입니다.</p>}
+            {error && <p className="emptyState errorState">{error}</p>}
+            {!loading && !error && children.length === 0 && (
+              <p className="emptyState">아직 등록된 자녀가 없습니다. 위에서 이메일로 검색해 등록하세요.</p>
             )}
-            {childrenLoading && <p className="emptyState">학생 목록을 불러오는 중입니다.</p>}
-            {childrenError && <p className="emptyState errorState">{childrenError}</p>}
-            {searched && filteredChildren.length === 0 && (
-              <p className="emptyState">검색 결과가 없습니다.</p>
-            )}
-            {filteredChildren.map((child, index) => (
-              <article key={child.id} className="childCard">
+            {children.map((child) => (
+              <article key={child.studentUid} className="childCard">
                 <header>
                   <span className="childAvatar"><Users size={18} /></span>
                   <div>
-                    <strong>자녀({child.displayName || child.email}) · {child.grade || '학년 미지정'}</strong>
-                    <small>검색 결과 {filteredChildren.length}명 중 {index + 1}번째</small>
+                    <strong>{child.studentName || child.studentEmail}</strong>
+                    <small>{child.studentEmail}</small>
                   </div>
-                  <b>{(child.xp ?? 0).toLocaleString()} XP</b>
+                  <b>{child.xp.toLocaleString()} XP</b>
                 </header>
                 <div className="childMetrics">
-                  <Stat icon={Flame} label="XP" value={(child.xp ?? 0).toLocaleString()} />
-                  <Stat icon={BookOpenCheck} label="문제 해결" value={child.solved ?? 0} />
-                  <Stat icon={LineChart} label="평균 XP 대비" value={child.avgXp ?? '-'} />
-                  <Stat icon={Target} label="평균 해결 수 대비" value={child.avgSolved ?? '-'} />
+                  <Stat icon={Flame} label="XP" value={child.xp.toLocaleString()} />
+                  <Stat icon={BookOpenCheck} label="문제 해결" value={`${child.solved}문제`} />
                 </div>
-                <section className="childSection">
-                  <h3>상단 요약</h3>
-                  <div><span>현재 진행 단원</span><strong>자료와 역사 해석</strong></div>
-                  <div><span>전체 완료율</span><strong>{child.completion ?? '-'}</strong></div>
-                  <div><span>최근 7일 해결</span><strong>0문제</strong></div>
-                  <div><span>최근 7일 정답률</span><strong>-</strong></div>
-                </section>
-                <section className="childSection">
-                  <h3>위험 신호</h3>
-                  <div><span>반복 오답 문제</span><strong>없음</strong></div>
-                  <div><span>힌트 많이 쓴 단원</span><strong>없음</strong></div>
-                  <div><span>오래 멈춘 단원</span><strong>기록 없음</strong></div>
-                </section>
-                <section className="childSection">
-                  <h3>비교/성장</h3>
-                  <div><span>같은 학년 평균 대비</span><strong>{child.avgSolved ?? '-'}</strong></div>
-                  <div><span>지난주 대비</span><strong>0</strong></div>
-                  <div><span>랭킹 변화</span><strong>{child.rank ?? '-'}</strong></div>
-                </section>
-                <button type="button" onClick={() => onApproveChild(child)}>
-                  {approvedChild === (child.displayName || child.email || child.id) ? '선택된 자녀' : '자녀 선택'}
-                </button>
               </article>
             ))}
           </div>
@@ -648,14 +724,14 @@ function ParentDashboard({ onApproveChild, approvedChild }) {
                 </tr>
               </thead>
               <tbody>
-                {activities.map((row) => (
-                  <tr key={row.join('-')}>
+                {activityRows.map((row, rowIndex) => (
+                  <tr key={`activity-${rowIndex}`}>
                     {row.map((cell, index) => (
-                      <td key={`${cell}-${index}`} className={index === 5 ? 'positiveCell' : ''}>{cell}</td>
+                      <td key={`${rowIndex}-${index}`} className={index === 5 ? 'positiveCell' : ''}>{cell}</td>
                     ))}
                   </tr>
                 ))}
-                {activities.length === 0 && (
+                {activityRows.length === 0 && (
                   <tr>
                     <td colSpan="7">학습 기록이 없습니다.</td>
                   </tr>

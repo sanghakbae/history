@@ -7,7 +7,7 @@ import {
   signInWithPopup,
   signOut,
 } from 'firebase/auth';
-import { collection, doc, getDoc, getDocs, getFirestore, serverTimestamp, setDoc } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, getFirestore, query, serverTimestamp, setDoc, where } from 'firebase/firestore';
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || 'AIzaSyAxgNCPPqXglJq2hElNiG228m4yZG-hBdE',
@@ -137,5 +137,13 @@ export async function listAllUsers() {
 export async function listStudentApprovals() {
   if (!db) return [];
   const snapshot = await getDocs(collection(db, 'studentApprovals'));
+  return snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
+}
+
+export async function listApprovedStudents(parentUid) {
+  if (!db || !parentUid) return [];
+  const snapshot = await getDocs(
+    query(collection(db, 'studentApprovals'), where('parentUid', '==', parentUid)),
+  );
   return snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
 }

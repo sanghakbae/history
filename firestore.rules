@@ -18,6 +18,12 @@ service cloud.firestore {
       return signedIn() && currentUser().data.role == role;
     }
 
+    function isApprovedParentOf(studentUid) {
+      return hasRole('parent')
+        && exists(/databases/$(database)/documents/studentApprovals/$(studentUid))
+        && get(/databases/$(database)/documents/studentApprovals/$(studentUid)).data.parentUid == request.auth.uid;
+    }
+
     match /users/{uid} {
       allow read: if owns(uid) || hasRole('admin');
       allow create, update: if owns(uid);
@@ -37,7 +43,8 @@ service cloud.firestore {
     }
 
     match /studyLogs/{uid}/logs/{logId} {
-      allow read, create: if owns(uid);
+      allow read: if owns(uid) || isApprovedParentOf(uid);
+      allow create: if owns(uid);
       allow update, delete: if false;
     }
 

@@ -1354,6 +1354,58 @@ textarea {
   background: #f8fafc;
 }
 
+.parentSearchForm {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.parentSearchForm .managerSearch {
+  flex: 1 1 auto;
+  margin-bottom: 0;
+}
+
+.parentSearchForm button {
+  flex: 0 0 auto;
+  min-height: 38px;
+  padding: 0 16px;
+  border: 1px solid #0f766e;
+  border-radius: 5px;
+  color: #ffffff;
+  font-weight: 800;
+  background: #0f766e;
+  cursor: pointer;
+}
+
+.parentSearchForm button:disabled {
+  border-color: #cbd5e1;
+  background: #cbd5e1;
+  cursor: not-allowed;
+}
+
+.childCard.searchResult {
+  margin-bottom: 12px;
+  border-color: #99f6e4;
+  background: #f0fdfa;
+}
+
+.childCard.searchResult header button {
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid #0f766e;
+  border-radius: 5px;
+  color: #ffffff;
+  font-weight: 800;
+  background: #0f766e;
+  cursor: pointer;
+}
+
+.childCard.searchResult header button:disabled {
+  border-color: #cbd5e1;
+  background: #cbd5e1;
+  cursor: not-allowed;
+}
+
 .emptyState {
   margin: 0;
   padding: 14px;
