@@ -610,12 +610,13 @@ function ParentDashboard({ user, onApproveChild }) {
     setRegistering(true);
     try {
       await onApproveChild(student);
-      await loadChildren();
       setSearchState({ status: 'idle' });
       setEmailQuery('');
     } finally {
       setRegistering(false);
     }
+    // Refresh the registered list in the background so the button never waits on it.
+    loadChildren();
   }
 
   const activityRows = children
