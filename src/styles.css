@@ -2459,6 +2459,8 @@ textarea {
 
 .awardStats {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
   gap: 10px;
   margin-top: 6px;
 }
@@ -2823,6 +2825,17 @@ textarea {
 
   .skillNode b {
     line-height: 1.08;
+  }
+
+  .skillNode.examNode .examBadge {
+    font-size: 7px;
+    letter-spacing: 0;
+  }
+
+  /* 좁은 6열 그리드에서 긴 범위 라벨이 노드를 키우지 않도록 모바일에선 숨김
+     (범위는 문제 풀이 화면 헤더에서 확인 가능) */
+  .skillNode.examNode .examScope {
+    display: none;
   }
 
   .studySplit {

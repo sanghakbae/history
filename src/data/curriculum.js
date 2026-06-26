@@ -338,18 +338,33 @@ function buildQuestionSet(grade, title, concept, slug, index) {
   );
 }
 
-function buildExamStem(index, range, title) {
-  switch (index % 5) {
+function buildExamStem(template, range, title) {
+  switch (template % 5) {
     case 0:
-      return `${range} 범위를 종합할 때 옳은 설명은?`;
+      return `${range} 범위에서 ${withJosa(title, '을', '를')} 바르게 설명한 것은?`;
     case 1:
-      return `${range} 단원을 시대 흐름 속에서 바르게 연결한 것은?`;
+      return `${title} 단원을 시대 흐름 속에 놓고 바르게 연결한 설명은?`;
     case 2:
-      return `${range} 자료를 해석하는 기준으로 옳은 것은?`;
+      return `${range} 종합 자료에서 ${withJosa(title, '을', '를')} 해석한 기준으로 옳은 것은?`;
     case 3:
-      return `${range} 범위의 핵심 개념을 바르게 적용한 것은?`;
+      return `${title}의 핵심 개념을 바르게 적용한 것은?`;
     default:
       return `${range} 중 ${withJosa(title, '을', '를')} 다른 단원과 구분한 설명으로 옳은 것은?`;
+  }
+}
+
+function buildExamAnswer(template, title, concept) {
+  switch (template % 5) {
+    case 0:
+      return `${withJosa(title, '은', '는')} ${concept}`;
+    case 1:
+      return `${title} 단원은 ${concept} 이 흐름을 앞뒤 사건과 함께 판단한다.`;
+    case 2:
+      return `자료에서 ${title}의 단서를 찾으면 ${concept}`;
+    case 3:
+      return `${title}의 핵심은 '${concept}'로 정리할 수 있다.`;
+    default:
+      return `${withJosa(title, '은', '는')} 다른 단원과 달리 ${concept}`;
   }
 }
 
@@ -382,12 +397,14 @@ function buildExamUnit(grade, gradeIndex, examType, covered, requires) {
 
 function buildExamQuestion(grade, gradeIndex, examType, covered, scopeLabel, questionIndex) {
   const meta = examMeta[examType];
+  // (템플릿, 단원) 조합을 모두 다르게 만들어 stem·정답이 학년 시험 안에서 고유하도록 한다.
   const anchor = covered[questionIndex % covered.length];
   const other = covered[(questionIndex + 1) % covered.length];
+  const template = Math.floor(questionIndex / covered.length) % 5;
   const number = questionIndex + 1;
 
-  const stem = buildExamStem(questionIndex, scopeLabel, anchor.title);
-  const answer = `${withJosa(anchor.title, '은', '는')} ${anchor.concept}`;
+  const stem = buildExamStem(template, scopeLabel, anchor.title);
+  const answer = buildExamAnswer(template, anchor.title, anchor.concept);
   const distractors = [
     `${withJosa(anchor.title, '은', '는')} ${other.concept}`,
     '시험 범위가 넓으므로 단원 이름만 외우고 시대 배경은 확인하지 않는다.',
@@ -398,7 +415,8 @@ function buildExamQuestion(grade, gradeIndex, examType, covered, scopeLabel, que
   choices.splice(answerIndex, 0, answer);
 
   const difficulty = Math.min(5, meta.baseDifficulty + (questionIndex % 3 === 2 ? 1 : 0));
-  const assets = buildAssets(grade.id, anchor.slug, questionIndex);
+  // 시험은 여러 단원을 통합하는 텍스트 종합형 문항이라 단일 단원 이미지 자료를 붙이지 않는다.
+  const assets = [];
   const source = `[${meta.label} 종합] ${scopeLabel} 범위의 자료를 통합해 시대와 개념을 판별한다. 한 단원의 개념을 다른 단원에 잘못 붙인 보기를 주의한다.\n핵심: ${anchor.title} = ${anchor.concept}\n범위: ${grade.era}`;
 
   return {
