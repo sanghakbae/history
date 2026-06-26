@@ -1749,6 +1749,35 @@ textarea {
   box-shadow: inset 0 0 0 1px rgba(33, 212, 161, 0.8);
 }
 
+.skillNode.examNode {
+  gap: 2px;
+  border-style: dashed;
+  border-width: 1.5px;
+  background: color-mix(in srgb, var(--accent) 22%, #0b1322);
+}
+
+.skillNode.examNode .examBadge {
+  font-size: 10px;
+  font-weight: 900;
+  font-style: normal;
+  letter-spacing: 0.5px;
+  opacity: 0.9;
+}
+
+.skillNode.examNode .examScope {
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1.1;
+  opacity: 0.65;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+
+.skillNode.examNode.active .examBadge,
+.skillNode.examNode.active .examScope {
+  color: #07131e;
+}
+
 .currentRankCard {
   display: grid;
   gap: 8px;
@@ -2336,6 +2365,148 @@ textarea {
   100% {
     transform: translateY(-82vh) rotate(540deg);
     opacity: 0;
+  }
+}
+
+.awardOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(4, 9, 18, 0.72);
+  backdrop-filter: blur(4px);
+  animation: awardFade 0.2s ease-out;
+}
+
+.awardModal {
+  position: relative;
+  width: min(380px, 100%);
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 28px 26px 22px;
+  border-radius: 16px;
+  text-align: center;
+  color: #f8fafc;
+  background: linear-gradient(165deg, #16233b, #0d1626);
+  border: 1px solid rgba(110, 231, 183, 0.35);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.55), inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+  overflow: hidden;
+  animation: awardPop 0.32s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+}
+
+.awardConfetti {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.awardConfetti i {
+  position: absolute;
+  left: var(--x);
+  bottom: -16px;
+  width: 7px;
+  height: 12px;
+  border-radius: 2px;
+  background: #21d4a1;
+  animation: confettiUp 1.2s ease-out var(--delay) forwards;
+}
+
+.awardConfetti i:nth-child(3n) {
+  background: #ffd43b;
+}
+
+.awardConfetti i:nth-child(3n + 1) {
+  background: #f06595;
+}
+
+.awardMark {
+  font-size: 52px;
+  line-height: 1;
+  filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.4));
+}
+
+.awardEyebrow {
+  margin: 4px 0 0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  color: #94a3b8;
+}
+
+.awardHeadline {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 900;
+  color: #6ee7b7;
+}
+
+.awardTitle {
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.awardConcept {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #cbd5e1;
+  word-break: keep-all;
+}
+
+.awardStats {
+  display: flex;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.awardStats span {
+  padding: 7px 12px;
+  border-radius: 9px;
+  font-size: 12px;
+  color: #cbd5e1;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.awardStats b {
+  color: #ffd43b;
+  font-weight: 900;
+}
+
+.awardClose {
+  margin-top: 12px;
+  width: 100%;
+  padding: 11px;
+  border: none;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 800;
+  color: #07131e;
+  background: #6ee7b7;
+  cursor: pointer;
+}
+
+.awardClose:hover {
+  background: #54d6a3;
+}
+
+@keyframes awardFade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes awardPop {
+  0% {
+    transform: scale(0.85) translateY(12px);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1) translateY(0);
+    opacity: 1;
   }
 }
 

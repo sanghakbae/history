@@ -60,6 +60,7 @@ function App() {
   const [usedGuidesByQuestion, setUsedGuidesByQuestion] = useState({});
   const [isSkillTreeCollapsed, setIsSkillTreeCollapsed] = useState(false);
   const [approvedChild, setApprovedChild] = useState(() => localStorage.getItem('historyApprovedChild') || '');
+  const [skillAward, setSkillAward] = useState(null);
 
   useEffect(() => {
     if (isManagerRoute) {
@@ -171,9 +172,21 @@ function App() {
   }
 
   function isUnitUnlockedById(unitId, solvedIds = solvedQuestionIds) {
-    const globalIndex = allUnits.findIndex(({ unit }) => unit.id === unitId);
-    if (globalIndex <= 0) return true;
-    return isUnitComplete(allUnits[globalIndex - 1].unit, solvedIds);
+    const entry = allUnits.find(({ unit }) => unit.id === unitId);
+    if (!entry) return false;
+    const { unit } = entry;
+    // 시험 단원은 범위 스킬을 모두 완료하면 열린다. (일반 스킬 진행은 막지 않음)
+    if (unit.kind === 'exam') {
+      return (unit.requires || []).every((requiredId) => {
+        const requiredUnit = allUnits.find(({ unit: candidate }) => candidate.id === requiredId)?.unit;
+        return requiredUnit ? isUnitComplete(requiredUnit, solvedIds) : false;
+      });
+    }
+    // 일반 스킬은 시험을 건너뛰고 직전 스킬을 완료하면 열린다.
+    const skillUnits = allUnits.filter(({ unit: candidate }) => candidate.kind !== 'exam');
+    const skillIndex = skillUnits.findIndex(({ unit: candidate }) => candidate.id === unitId);
+    if (skillIndex <= 0) return true;
+    return isUnitComplete(skillUnits[skillIndex - 1].unit, solvedIds);
   }
 
   function isUnitUnlocked(grade, unitIndex) {
@@ -275,6 +288,20 @@ function App() {
         ? `${selectedUnit.title} 완료. 다음 스킬을 선택할 수 있습니다. +${awardedXp} XP`
         : `${selectedUnit.title} ${getSolvedCount(selectedUnit, nextSolvedIds)}/${selectedUnit.questions.length}문제 완료. +${awardedXp} XP`,
     );
+    if (completedUnit) {
+      const totalUnitXp = selectedUnit.questions.reduce((sum, item) => sum + (item.xp ?? 0), 0);
+      setSkillAward({
+        title: selectedUnit.title,
+        kind: selectedUnit.kind,
+        examType: selectedUnit.examType,
+        symbol: selectedUnit.symbol,
+        gradeLabel: selectedGrade.label,
+        scopeLabel: selectedUnit.scopeLabel,
+        concept: selectedUnit.concept,
+        questionCount: selectedUnit.questions.length,
+        totalUnitXp,
+      });
+    }
     if (!isFirebaseConfigured || !auth.currentUser) return;
 
     try {
@@ -479,7 +506,47 @@ function App() {
           {notice}
         </div>
       )}
+
+      {skillAward && <SkillAwardModal award={skillAward} onClose={() => setSkillAward(null)} />}
     </main>
+  );
+}
+
+function SkillAwardModal({ award, onClose }) {
+  const isExam = award.kind === 'exam';
+  const headline = isExam
+    ? `${award.examType === 'final' ? '기말고사' : '중간고사'} 통과!`
+    : '스킬 획득!';
+
+  return (
+    <div className="awardOverlay" role="dialog" aria-modal="true" aria-label={headline} onClick={onClose}>
+      <div className="awardModal" onClick={(event) => event.stopPropagation()}>
+        <div className="awardConfetti" aria-hidden="true">
+          {Array.from({ length: 24 }, (_, index) => (
+            <i
+              key={index}
+              style={{ '--x': `${(index % 12) * 8 + 4}%`, '--delay': `${(index % 6) * 0.05}s` }}
+            />
+          ))}
+        </div>
+        <span className="awardMark">{award.symbol || (isExam ? '🏆' : '⭐')}</span>
+        <p className="awardEyebrow">{award.gradeLabel} · 한국사</p>
+        <h2 className="awardHeadline">{headline}</h2>
+        <strong className="awardTitle">{award.title}</strong>
+        <p className="awardConcept">{isExam ? `시험 범위: ${award.scopeLabel}` : award.concept}</p>
+        <div className="awardStats">
+          <span>
+            <b>{award.questionCount}</b>문항 완료
+          </span>
+          <span>
+            <b>+{award.totalUnitXp.toLocaleString()}</b> XP 누적
+          </span>
+        </div>
+        <button className="awardClose" type="button" onClick={onClose}>
+          계속하기
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -1087,6 +1154,7 @@ function SkillTree({
                   key={unit.id}
                   className={[
                     'skillNode',
+                    unit.kind === 'exam' ? 'examNode' : '',
                     selectedUnit.id === unit.id ? 'active' : '',
                     unlocked ? '' : 'locked',
                     getSolvedCount(unit) === unit.questions.length ? 'complete' : '',
@@ -1096,7 +1164,9 @@ function SkillTree({
                   disabled={!unlocked}
                   onClick={() => onSelectGrade(grade, unit.id)}
                 >
+                  {unit.kind === 'exam' && <i className="examBadge">{unit.symbol} 시험</i>}
                   <b>{unit.title}</b>
+                  {unit.kind === 'exam' && <small className="examScope">{unit.scopeLabel}</small>}
                 </button>
                 );
               })}

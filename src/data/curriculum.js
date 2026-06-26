@@ -279,19 +279,48 @@ const xpByDifficulty = {
   5: 90,
 };
 
-export const grades = rawCurriculum.map((grade) => ({
-  ...grade,
-  color: gradeColors[grade.id],
-  units: grade.units.map(([title, concept, slug], index) => ({
+const examMeta = {
+  midterm: { label: '중간고사', symbol: '📝', baseDifficulty: 3 },
+  final: { label: '기말고사', symbol: '🏆', baseDifficulty: 4 },
+};
+
+export const grades = rawCurriculum.map((grade, gradeIndex) => {
+  const skillUnits = grade.units.map(([title, concept, slug], index) => ({
     id: `${grade.id}-${slug}`,
     title,
     concept,
+    kind: 'skill',
     symbol: getSymbol(index),
     difficulty: index < 2 ? 2 : index < 5 ? 3 : 4,
     progress: Math.max(12, grade.progress - index * 5),
     questions: buildQuestionSet(grade, title, concept, slug, index),
-  })),
-}));
+  }));
+
+  const covered = grade.units.map(([title, concept, slug]) => ({ title, concept, slug }));
+  const half = Math.ceil(covered.length / 2);
+  const firstHalf = covered.slice(0, half);
+
+  const midterm = buildExamUnit(
+    grade,
+    gradeIndex,
+    'midterm',
+    firstHalf,
+    firstHalf.map((unit) => `${grade.id}-${unit.slug}`),
+  );
+  const finalExam = buildExamUnit(
+    grade,
+    gradeIndex,
+    'final',
+    covered,
+    covered.map((unit) => `${grade.id}-${unit.slug}`),
+  );
+
+  return {
+    ...grade,
+    color: gradeColors[grade.id],
+    units: [...skillUnits.slice(0, half), midterm, ...skillUnits.slice(half), finalExam],
+  };
+});
 
 export const totalQuestionCount = grades.reduce(
   (total, grade) => total + grade.units.reduce((sum, unit) => sum + unit.questions.length, 0),
@@ -307,6 +336,95 @@ function buildQuestionSet(grade, title, concept, slug, index) {
   return Array.from({ length: count }, (_, questionIndex) =>
     buildQuestion(grade, title, concept, slug, index, questionIndex),
   );
+}
+
+function buildExamStem(index, range, title) {
+  switch (index % 5) {
+    case 0:
+      return `${range} 범위를 종합할 때 옳은 설명은?`;
+    case 1:
+      return `${range} 단원을 시대 흐름 속에서 바르게 연결한 것은?`;
+    case 2:
+      return `${range} 자료를 해석하는 기준으로 옳은 것은?`;
+    case 3:
+      return `${range} 범위의 핵심 개념을 바르게 적용한 것은?`;
+    default:
+      return `${range} 중 ${withJosa(title, '을', '를')} 다른 단원과 구분한 설명으로 옳은 것은?`;
+  }
+}
+
+function buildExamUnit(grade, gradeIndex, examType, covered, requires) {
+  const meta = examMeta[examType];
+  const scopeLabel =
+    covered.length > 1 ? `${covered[0].title} ~ ${covered[covered.length - 1].title}` : covered[0].title;
+  const concept =
+    examType === 'midterm'
+      ? `${scopeLabel} 범위를 시대 흐름과 자료 단서로 종합 점검한다.`
+      : `${grade.label} ${grade.course}의 전 범위를 시대 흐름과 자료 단서로 종합 점검한다.`;
+  const count = examType === 'midterm' ? covered.length + 3 : covered.length + 4;
+
+  return {
+    id: `${grade.id}-${examType}`,
+    title: meta.label,
+    concept,
+    kind: 'exam',
+    examType,
+    scopeLabel,
+    requires,
+    symbol: meta.symbol,
+    difficulty: meta.baseDifficulty,
+    progress: 0,
+    questions: Array.from({ length: count }, (_, questionIndex) =>
+      buildExamQuestion(grade, gradeIndex, examType, covered, scopeLabel, questionIndex),
+    ),
+  };
+}
+
+function buildExamQuestion(grade, gradeIndex, examType, covered, scopeLabel, questionIndex) {
+  const meta = examMeta[examType];
+  const anchor = covered[questionIndex % covered.length];
+  const other = covered[(questionIndex + 1) % covered.length];
+  const number = questionIndex + 1;
+
+  const stem = buildExamStem(questionIndex, scopeLabel, anchor.title);
+  const answer = `${withJosa(anchor.title, '은', '는')} ${anchor.concept}`;
+  const distractors = [
+    `${withJosa(anchor.title, '은', '는')} ${other.concept}`,
+    '시험 범위가 넓으므로 단원 이름만 외우고 시대 배경은 확인하지 않는다.',
+    '자료의 시기와 관점은 보지 않고 익숙해 보이는 보기를 정답으로 고른다.',
+  ];
+  const answerIndex = (questionIndex + gradeIndex) % 4;
+  const choices = [...distractors];
+  choices.splice(answerIndex, 0, answer);
+
+  const difficulty = Math.min(5, meta.baseDifficulty + (questionIndex % 3 === 2 ? 1 : 0));
+  const assets = buildAssets(grade.id, anchor.slug, questionIndex);
+  const source = `[${meta.label} 종합] ${scopeLabel} 범위의 자료를 통합해 시대와 개념을 판별한다. 한 단원의 개념을 다른 단원에 잘못 붙인 보기를 주의한다.\n핵심: ${anchor.title} = ${anchor.concept}\n범위: ${grade.era}`;
+
+  return {
+    id: `q-${grade.id}-${examType}-${String(number).padStart(2, '0')}`,
+    title: `${meta.label} ${number}`,
+    type: examType === 'midterm' ? '중간 종합' : '기말 종합',
+    difficulty,
+    xp: xpByDifficulty[difficulty],
+    stem,
+    source,
+    assets,
+    choices,
+    answerIndex,
+    explanation: `${meta.label} 범위(${scopeLabel})에서 ${withJosa(anchor.title, '은', '는')} ${anchor.concept} '${other.title}'의 내용과 시대를 섞은 보기는 시대착오이므로 먼저 제외해야 합니다.`,
+    concepts: [
+      `${anchor.title}: ${anchor.concept}`,
+      `시험 범위: ${scopeLabel}`,
+      '종합 시험은 단원 사이의 시대·개념 혼동을 가장 많이 노린다.',
+    ],
+    lesson: buildLesson(grade, anchor.title, anchor.concept, gradeIndex >= 4 ? 5 : questionIndex % 6),
+    steps: buildSolvingSteps(anchor.title, anchor.concept, questionIndex),
+    mistakes: buildMistakes(anchor.title, questionIndex),
+    readingGuide: buildReadingGuide(grade, anchor.title, anchor.concept, source, questionIndex),
+    timelineGuide: buildTimelineGuide(grade, anchor.title, anchor.concept, questionIndex),
+    eliminateGuide: buildEliminateGuide(anchor.title, choices, answerIndex),
+  };
 }
 
 function getQuestionCount(gradeId, unitIndex) {
